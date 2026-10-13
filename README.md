@@ -1,83 +1,60 @@
 # Constellation
 
-**An autonomous market-intelligence pipeline: ~90 LLM agents, nine gated stages, and a 3D map of what actually matters in your field.**
+**An autonomous research pipeline: AI agents research a subject, check each other's findings against their sources and publish a navigable map of what matters, which gets sharper with every rating the reader gives.**
 
-Live product → **[constellation.ingevision.cloud](https://constellation.ingevision.cloud)**
+![How Constellation works](assets/pipeline.svg)
 
-![Constellation](assets/hero.png)
+**[Explore the live demo](https://constellation.ingevision.cloud)**: two example constellations, in the browser, nothing to install and nothing you do is saved.
 
----
+## Why
 
-## The problem
+Keyword alerts return everything that matches. An LLM digest returns a plausible summary that nobody can check. Constellation sits in between: specialised agents do the reading, other agents verify it against the sources, and the reader's ratings teach the next run what is worth their time. A run uses about ninety agents.
 
-Automated market intelligence produces one of two failures. Keyword tools (Feedly, Google Alerts) return everything that matches a string — high recall, no judgment. Ask an LLM to "summarize this week in AI" and you get a plausible, unfalsifiable digest with no way to tell a real signal from a confident hallucination.
+## What the reader sees
 
-Neither learns what *this particular reader* considers worth their time.
+**1. Rate the delivery.** Each star is a finding, placed on its axis and at the level the agents pre-ranked it; the reader gives their own verdict.
 
-Constellation is a production system that addresses all three: it researches a topic with a cast of specialised agents, verifies findings adversarially, and renders the result as a navigable constellation rather than a wall of text. Readers rate what they find useful, and the next run is measurably sharper.
+![Rating view](assets/rate.png)
 
-## What it does
+**2. Open any finding.** Headline, source link, the agents' scores and a sourced summary, in English or French.
 
-A run takes a subject definition and an *owner profile* — who is reading, and through which lens — and produces a published, bilingual intelligence map.
+![A finding](assets/finding.png)
+
+**3. Watch it learn.** Deliveries stack up into a base the reader can search. The side panel compares the agents' ranking with the reader's.
+
+![Published constellation](assets/published.png)
+
+<sub>Demonstration copy of a real watch on general AI, shared by its owner. Some labels of the demo data are still in French.</sub>
+
+## The evidence
+
+![One real run](assets/run-evidence.svg)
+
+<sub>Counts from the run behind the 20 August 2026 delivery, the one shown in the rating view above. A preference rule is written only if it was tested on at least three past ratings and reproduces at least two thirds of them.</sub>
+
+## Design principles
 
 | | |
 |---|---|
-| **Research** | A cast of hunter agents works assigned axes of the subject in parallel. Each hunter is shadowed by an independent verifier that never sees the hunter's reasoning. |
-| **Verification** | Claims are checked against sources by agents that did not produce them. A finding that survives is promoted; one that does not is dropped with a recorded reason. |
-| **Synthesis** | Surviving findings are written up in French and English, then linked to each other — the links are what turn a list into a map. |
-| **Review** | The reader rates findings on the published constellation. This is the one deliberate human checkpoint in the pipeline. |
-| **Learning** | Ratings are converted into per-axis preference rules, then **back-tested against the reader's own past rankings — a rule that fails to reproduce them is discarded, not shipped.** |
-
-![Product tour](assets/product-tour.png)
-
-## Engineering decisions worth stealing
-
-**Deterministic gates, not agent self-report.** Every stage is bounded by a validator — a plain Python program that inspects the artefacts on disk and either passes or refuses. An agent claiming to have finished proves nothing; the gate is the only thing that advances the run. This single choice removed the entire class of "I believe I completed that" failures that makes long agent chains untrustworthy.
-
-**Induced rules must earn their place.** The preference learner does not simply ask a model to describe the reader's taste. It induces candidate rules, replays them against the ratings already collected, and keeps only those that reconstruct the reader's actual ranking. Preference learning that is never back-tested is just a model agreeing with itself.
-
-**Idempotent resume.** Runs are long and failure is normal. Re-invoking the orchestrator skips every stage already green and resumes at the first that is not — so a crash costs the failed stage, never the run.
-
-**One canonical template, propagated.** Every published page in the system is served from a single root template; only data is per-run. A visual fix is made once and pushed everywhere in one command, which is why the twentieth run looks exactly like the first.
-
-**Bilingual at the data layer.** Findings carry both languages as first-class fields rather than being translated at render time, so the FR/EN toggle is instantaneous and neither language is a second-class citizen.
-
-## Architecture
-
-```
-subject + owner profile
-   │
-   ├─ pre-flight      workspace, profile, agent casting are coherent
-   ├─ hunt            parallel hunter agents across the subject's axes
-   ├─ verification    independent agents re-check every claim
-   ├─ constellation   bilingual write-up + the link graph between findings
-   ├─ notification    the reader is told their map is ready
-   ├─ rating          ◀── human checkpoint: the reader scores what landed
-   ├─ feedback        induce per-axis rules, back-test, keep survivors
-   ├─ publish         multi-tenant portal, one shared root template
-   └─ debrief         cost, duration and token accounting per stage
-   │
-   └─ every arrow above is a blocking validator, not a handoff
-```
-
-Each stage runs headless, writes its artefacts to a run workspace, and is admitted to the next stage only by its validator. A monitoring daemon regenerates the run report every few seconds, so a live dashboard shows exactly which stage is executing and which gate is holding.
-
-**Stack** — Node.js service in Docker behind Traefik · three.js for the constellation view · headless agent orchestration in Bash + Python validators · deployed on a self-hosted VPS with per-tenant data isolation.
+| **Gates, not self-report** | Every stage is closed by a plain program that checks the files it produced. An agent saying "done" moves nothing. |
+| **Checked by someone else** | The agents that verify a finding never wrote it. |
+| **Rules must earn their place** | A preference rule is kept only if it reproduces the reader's past ratings. |
+| **Resume, don't restart** | A crashed run restarts at the first stage that is not green. |
+| **One template** | Every published page comes from one shared template, so a fix is made once and reaches every reader. |
 
 ## Status
 
-In production. Multiple real subjects run on it, including a live feed for an external reader, with the portal, the rating loop and the learning pass all exercised end to end.
+In production. Several watches run on it, including one for an external reader, with the portal, the rating loop and the learning pass used end to end.
+
+<sub>Stack: Node.js in Docker behind Traefik · three.js · headless agents orchestrated in Bash with Python validators · self-hosted server, data isolated per reader.</sub>
 
 ## Why the source is not here
 
-Constellation is a commercial product, and the parts that make it work — the agent contracts, the verification protocol, the rule-induction pass — are the product. This repository documents the system, its architecture and the decisions behind it. The running system is public and free to explore at [constellation.ingevision.cloud](https://constellation.ingevision.cloud); that is the honest demonstration.
-
-Happy to walk through any of it in detail — including the parts not written down here — with anyone evaluating a collaboration.
+Constellation is a commercial product: the agent contracts, the verification protocol and the rule-learning pass are the product. The live demo is the honest demonstration. Happy to walk through any of it in detail with anyone evaluating a collaboration.
 
 ---
 
-**Anthony Hunt** — independent consultant, applied agentic AI.
-Multi-agent systems in production · LLM orchestration · AI × immersive.
-📧 [anthony.hunt@yahoo.fr](mailto:anthony.hunt@yahoo.fr)
+**Anthony Hunt** — applied agentic AI: evaluating, training and deploying specialised agents.
+[GitHub profile](https://github.com/anthohunt) · [anthony.hunt@yahoo.fr](mailto:anthony.hunt@yahoo.fr)
 
-© 2026 Anthony Hunt. Text and images in this repository are provided for evaluation; the described system is proprietary.
+<sub>© 2026 Anthony Hunt. Text and images are provided for evaluation; the described system is proprietary.</sub>
