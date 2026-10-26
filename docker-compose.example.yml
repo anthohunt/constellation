@@ -1,0 +1,17 @@
+# Exemple : le site seul, derrière votre propre proxy HTTPS.
+services:
+  constellation:
+    build: ./server
+    image: constellation:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATAROOT=/data
+      - SILO=/silo
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+      - ./server/public:/app/public
+      - ${VEILLE_OWNERS_DIR:-./veille-owners}:/silo
+      # - ./dkim/private.pem:/dkim/private.pem:ro

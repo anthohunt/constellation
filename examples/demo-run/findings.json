@@ -1,0 +1,290 @@
+{
+  "owner": "demo",
+  "subject": "solaire-maison",
+  "axes_i18n": {
+    "Rendements mesurés": "Measured yields",
+    "Batteries & stockage": "Batteries & storage",
+    "Démarches & aides": "Paperwork & grants"
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "titre": "Un suivi de 200 toits montre 8 % de production en moins sur les panneaux mal orientés",
+      "titre_fr": "Un suivi de 200 toits montre 8 % de production en moins sur les panneaux mal orientés",
+      "titre_en": "A 200-roof tracking study shows 8% less output on poorly oriented panels",
+      "axe": "Rendements mesurés",
+      "essentiel": "Un observatoire fictif a suivi 200 toits pendant un an. Les panneaux orientés plein sud produisent le plus ; ceux tournés à l'est ou à l'ouest perdent en moyenne 8 %. L'écart est plus faible qu'on ne le croit : une orientation imparfaite ne condamne pas un projet.",
+      "essentiel_fr": "Un observatoire fictif a suivi 200 toits pendant un an. Les panneaux orientés plein sud produisent le plus ; ceux tournés à l'est ou à l'ouest perdent en moyenne 8 %. L'écart est plus faible qu'on ne le croit : une orientation imparfaite ne condamne pas un projet.",
+      "essentiel_en": "A fictional observatory tracked 200 roofs for a year. South-facing panels produce the most; east- or west-facing ones lose 8% on average. The gap is smaller than people think: an imperfect orientation does not doom a project.",
+      "url": "https://example.org/demo/f1",
+      "date_fait": "2026-10-02",
+      "tier": "Excellent",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F1",
+          "url": "https://example.org/demo/f1",
+          "date": "2026-10-02",
+          "trouve_par": "chasseur-1",
+          "fid": "F1"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F2",
+      "titre": "Les micro-onduleurs limitent la perte due à l'ombre d'une cheminée",
+      "titre_fr": "Les micro-onduleurs limitent la perte due à l'ombre d'une cheminée",
+      "titre_en": "Micro-inverters limit the loss caused by a chimney's shade",
+      "axe": "Rendements mesurés",
+      "essentiel": "Sur un banc d'essai fictif, une ombre portée sur un seul panneau fait chuter toute la chaîne avec un onduleur central, mais seulement ce panneau avec des micro-onduleurs. La différence sur l'année atteint 5 % pour un toit partiellement ombragé.",
+      "essentiel_fr": "Sur un banc d'essai fictif, une ombre portée sur un seul panneau fait chuter toute la chaîne avec un onduleur central, mais seulement ce panneau avec des micro-onduleurs. La différence sur l'année atteint 5 % pour un toit partiellement ombragé.",
+      "essentiel_en": "On a fictional test bench, a shadow on a single panel drags the whole string down with a central inverter, but only that panel with micro-inverters. The yearly difference reaches 5% on a partly shaded roof.",
+      "url": "https://example.org/demo/f2",
+      "date_fait": "2026-09-24",
+      "tier": "Cool",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F2",
+          "url": "https://example.org/demo/f2",
+          "date": "2026-09-24",
+          "trouve_par": "chasseur-1",
+          "fid": "F2"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F3",
+      "titre": "Le nettoyage des panneaux rapporte moins qu'annoncé",
+      "titre_fr": "Le nettoyage des panneaux rapporte moins qu'annoncé",
+      "titre_en": "Cleaning panels pays back less than advertised",
+      "axe": "Rendements mesurés",
+      "essentiel": "Une série de mesures fictive compare des panneaux nettoyés chaque mois à des panneaux laissés à la pluie. Le gain plafonne à 2 % dans une région pluvieuse : le nettoyage payant se justifie surtout près des routes poussiéreuses.",
+      "essentiel_fr": "Une série de mesures fictive compare des panneaux nettoyés chaque mois à des panneaux laissés à la pluie. Le gain plafonne à 2 % dans une région pluvieuse : le nettoyage payant se justifie surtout près des routes poussiéreuses.",
+      "essentiel_en": "A fictional series of measurements compares panels cleaned monthly with panels left to the rain. The gain caps at 2% in a rainy region: paid cleaning mostly makes sense near dusty roads.",
+      "url": "https://example.org/demo/f3",
+      "date_fait": "2026-09-15",
+      "tier": "Intéressant",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F3",
+          "url": "https://example.org/demo/f3",
+          "date": "2026-09-15",
+          "trouve_par": "chasseur-1",
+          "fid": "F3"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F4",
+      "titre": "Une batterie de 5 kWh fait passer l'autoconsommation de 35 % à 60 %",
+      "titre_fr": "Une batterie de 5 kWh fait passer l'autoconsommation de 35 % à 60 %",
+      "titre_en": "A 5 kWh battery lifts self-consumption from 35% to 60%",
+      "axe": "Batteries & stockage",
+      "essentiel": "Dans une maison fictive de quatre personnes, la part de l'électricité solaire consommée sur place passe de 35 % à 60 % avec une batterie de 5 kWh. Au-delà, chaque kWh de stockage ajouté rapporte de moins en moins.",
+      "essentiel_fr": "Dans une maison fictive de quatre personnes, la part de l'électricité solaire consommée sur place passe de 35 % à 60 % avec une batterie de 5 kWh. Au-delà, chaque kWh de stockage ajouté rapporte de moins en moins.",
+      "essentiel_en": "In a fictional four-person home, the share of solar power used on site rises from 35% to 60% with a 5 kWh battery. Beyond that, each extra kWh of storage yields less and less.",
+      "url": "https://example.org/demo/f4",
+      "date_fait": "2026-10-08",
+      "tier": "Excellent",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F4",
+          "url": "https://example.org/demo/f4",
+          "date": "2026-10-08",
+          "trouve_par": "chasseur-2",
+          "fid": "F4"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F5",
+      "titre": "Les batteries au sodium arrivent chez les particuliers",
+      "titre_fr": "Les batteries au sodium arrivent chez les particuliers",
+      "titre_en": "Sodium batteries reach households",
+      "axe": "Batteries & stockage",
+      "essentiel": "Un fabricant fictif annonce une batterie domestique au sodium, moins chère que le lithium mais plus lourde. Les premiers chiffres de cycles de charge restent ceux du fabricant : aucun test indépendant n'est encore publié.",
+      "essentiel_fr": "Un fabricant fictif annonce une batterie domestique au sodium, moins chère que le lithium mais plus lourde. Les premiers chiffres de cycles de charge restent ceux du fabricant : aucun test indépendant n'est encore publié.",
+      "essentiel_en": "A fictional manufacturer announces a home sodium battery, cheaper than lithium but heavier. The first charge-cycle figures are still the manufacturer's own: no independent test has been published yet.",
+      "url": "https://example.org/demo/f5",
+      "date_fait": "2026-10-12",
+      "tier": "Cool",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F5",
+          "url": "https://example.org/demo/f5",
+          "date": "2026-10-12",
+          "trouve_par": "chasseur-2",
+          "fid": "F5"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F6",
+      "titre": "Recharger sa voiture à midi remplace une partie de la batterie",
+      "titre_fr": "Recharger sa voiture à midi remplace une partie de la batterie",
+      "titre_en": "Charging the car at noon replaces part of the battery",
+      "axe": "Batteries & stockage",
+      "essentiel": "Une simulation fictive montre qu'une voiture électrique branchée aux heures de soleil absorbe le surplus aussi bien qu'une petite batterie. Le gain dépend surtout de la présence de la voiture en journée.",
+      "essentiel_fr": "Une simulation fictive montre qu'une voiture électrique branchée aux heures de soleil absorbe le surplus aussi bien qu'une petite batterie. Le gain dépend surtout de la présence de la voiture en journée.",
+      "essentiel_en": "A fictional simulation shows that an electric car plugged in during sunny hours absorbs the surplus as well as a small battery. The gain mostly depends on the car being home during the day.",
+      "url": "https://example.org/demo/f6",
+      "date_fait": "2026-09-30",
+      "tier": "Intéressant",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F6",
+          "url": "https://example.org/demo/f6",
+          "date": "2026-09-30",
+          "trouve_par": "chasseur-2",
+          "fid": "F6"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F7",
+      "titre": "Le tarif de rachat baisse de 10 % au trimestre suivant",
+      "titre_fr": "Le tarif de rachat baisse de 10 % au trimestre suivant",
+      "titre_en": "The feed-in tariff drops 10% next quarter",
+      "axe": "Démarches & aides",
+      "essentiel": "Un régulateur fictif publie la grille du prochain trimestre : le prix payé pour l'électricité revendue baisse de 10 % pour les petites installations. Un dossier déposé avant la date limite garde l'ancien tarif.",
+      "essentiel_fr": "Un régulateur fictif publie la grille du prochain trimestre : le prix payé pour l'électricité revendue baisse de 10 % pour les petites installations. Un dossier déposé avant la date limite garde l'ancien tarif.",
+      "essentiel_en": "A fictional regulator publishes next quarter's schedule: the price paid for electricity sold back drops 10% for small installations. A file submitted before the deadline keeps the old rate.",
+      "url": "https://example.org/demo/f7",
+      "date_fait": "2026-10-15",
+      "tier": "Excellent",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F7",
+          "url": "https://example.org/demo/f7",
+          "date": "2026-10-15",
+          "trouve_par": "chasseur-3",
+          "fid": "F7"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F8",
+      "titre": "Une région fictive ouvre une aide de 500 € pour les toits de moins de 3 kWc",
+      "titre_fr": "Une région fictive ouvre une aide de 500 € pour les toits de moins de 3 kWc",
+      "titre_en": "A fictional region opens a €500 grant for roofs under 3 kWp",
+      "axe": "Démarches & aides",
+      "essentiel": "L'aide couvre l'installation par un artisan certifié, sur dossier en ligne. Elle se cumule avec la prime nationale, mais pas avec un prêt dédié du même organisme.",
+      "essentiel_fr": "L'aide couvre l'installation par un artisan certifié, sur dossier en ligne. Elle se cumule avec la prime nationale, mais pas avec un prêt dédié du même organisme.",
+      "essentiel_en": "The grant covers installation by a certified tradesperson, on an online application. It stacks with the national bonus, but not with a dedicated loan from the same body.",
+      "url": "https://example.org/demo/f8",
+      "date_fait": "2026-10-05",
+      "tier": "Bof",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F8",
+          "url": "https://example.org/demo/f8",
+          "date": "2026-10-05",
+          "trouve_par": "chasseur-3",
+          "fid": "F8"
+        }
+      ],
+      "objets": []
+    },
+    {
+      "id": "F9",
+      "titre": "La déclaration préalable passe en ligne dans de nouvelles communes",
+      "titre_fr": "La déclaration préalable passe en ligne dans de nouvelles communes",
+      "titre_en": "The prior declaration goes online in more towns",
+      "axe": "Démarches & aides",
+      "essentiel": "Plusieurs communes fictives acceptent désormais la déclaration préalable de travaux sur un portail en ligne. Le délai d'instruction annoncé reste d'un mois.",
+      "essentiel_fr": "Plusieurs communes fictives acceptent désormais la déclaration préalable de travaux sur un portail en ligne. Le délai d'instruction annoncé reste d'un mois.",
+      "essentiel_en": "Several fictional towns now accept the prior works declaration on an online portal. The announced processing time stays at one month.",
+      "url": "https://example.org/demo/f9",
+      "date_fait": "2026-09-20",
+      "tier": "Neutre",
+      "tier_source": "agent",
+      "notes": {
+        "poids": 2,
+        "disruptivite": 1,
+        "delta": 2,
+        "matiere": 2,
+        "contradiction": 0
+      },
+      "sources": [
+        {
+          "titre": "Source fictive F9",
+          "url": "https://example.org/demo/f9",
+          "date": "2026-09-20",
+          "trouve_par": "chasseur-3",
+          "fid": "F9"
+        }
+      ],
+      "objets": []
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Constellation — Mindmap</title>
+<style>
+  :root{--bg:#0b1220;--ink:#eaf0fb;--muted:#93a3bf;--faint:#5f708f;--card:#131f36;--line2:#33456a;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--accent:#7fb0ff;}
+  *{box-sizing:border-box}html,body{margin:0;height:100%}
+  body{background:radial-gradient(1200px 800px at 50% -8%,#16233f 0,transparent 60%),var(--bg);
+    color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden}
+  a{color:inherit;text-decoration:none}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+  header{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+    padding:14px 22px;background:linear-gradient(180deg,rgba(11,18,32,.96),rgba(11,18,32,.7));backdrop-filter:blur(4px);border-bottom:1px solid #1c2942}
+  header .brand{font-weight:700;font-size:15px;color:#fff}
+  header h1{margin:0;font-size:16px;font-weight:650;letter-spacing:-.01em}
+  header .sub{font-size:12.5px;color:var(--muted)}
+  header .rt{margin-left:auto;font-size:12px;color:var(--faint);text-align:right;line-height:1.4}
+
+  .stage{position:fixed;inset:0;top:0;overflow:hidden;cursor:grab;touch-action:none}
+  .stage.grabbing{cursor:grabbing}
+  .fitwrap{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+  .canvas{position:relative}
+  svg.links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .node{position:absolute;transform:translate(-50%,-50%);display:block}
+  .hub{background:linear-gradient(145deg,#1b2c4d,#0f1a2e);border:1.5px solid #3a4f7a;border-radius:16px;
+    padding:15px 20px;max-width:300px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .hub .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .hub .t{font-size:16px;font-weight:700;line-height:1.25;margin-top:5px}
+  .axis{border-radius:11px;padding:8px 13px;max-width:210px;font-weight:700;font-size:13px;line-height:1.2;
+    background:#101c30;box-shadow:0 8px 22px rgba(0,0,0,.35)}
+  .axis .cnt{font-weight:500;opacity:.7;font-size:11px;color:var(--muted)}
+  a.leaf{position:absolute;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--line2);border-radius:10px;
+    padding:9px 12px;width:210px;font-size:12.5px;line-height:1.34;color:var(--ink);box-shadow:0 6px 16px rgba(0,0,0,.32);
+    cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  a.leaf:hover,a.leaf:focus-visible{border-color:var(--accent);box-shadow:0 12px 30px rgba(0,0,0,.55);z-index:3}
+  a.leaf .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  a.leaf .go{float:right;font-size:10px;color:var(--accent);margin-top:2px;font-weight:600}
+
+  .zoom{position:fixed;right:16px;bottom:16px;z-index:25;display:flex;flex-direction:column;gap:6px}
+  .zoom button{width:38px;height:38px;border-radius:10px;border:1px solid #2b3b59;background:rgba(19,31,54,.92);
+    color:var(--ink);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+  .zoom button:hover{border-color:var(--accent)}
+  .zoom .fit{font-size:11px;font-weight:600}
+  .hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:20;font-size:12px;color:var(--muted);
+    background:rgba(15,26,46,.9);border:1px solid #26344f;border-radius:999px;padding:6px 14px}
+  #loading{padding:80px;text-align:center;color:var(--muted)}
+
+  .list{display:none;max-width:760px;margin:60px auto 0;padding:16px 16px 80px}
+  .list .grp{margin:18px 0 6px;display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px}
+  .list .grp .pip{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  a.li{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:1px solid var(--line2);
+    border-radius:10px;padding:12px 14px;margin:8px 0;color:var(--ink);font-size:14px;line-height:1.4}
+  a.li:hover,a.li:focus-visible{border-color:var(--accent)}
+  a.li .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:6px}
+  a.li .go{margin-left:auto;color:var(--accent);font-size:12px;font-weight:600;white-space:nowrap}
+  @media(max-width:720px){ .stage,.zoom,.hint{display:none} .list{display:block} header .rt{display:none} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Constellation</div>
+  <div><h1 id="title">Mindmap</h1><div class="sub" id="sub"></div></div>
+  <div class="rt" id="rt"></div>
+</header>
+<div id="loading">Chargement…</div>
+<div class="stage" id="stage" hidden><div class="fitwrap" id="fitwrap"><div class="canvas" id="canvas"><svg class="links" id="links"></svg></div></div></div>
+<div class="zoom" id="zoom" hidden>
+  <button id="zin" aria-label="Zoom avant" title="Zoom avant">+</button>
+  <button id="zout" aria-label="Zoom arrière" title="Zoom arrière">−</button>
+  <button id="zfit" class="fit" aria-label="Ajuster" title="Ajuster">fit</button>
+</div>
+<nav class="list" id="list" aria-label="Signaux par axe"></nav>
+<div class="hint" id="hint" hidden>Molette pour zoomer · glisser pour déplacer · clic sur un signal → sa fiche s'ouvre dans un onglet</div>
+
+<script>
+// Palette cyclique — la mindmap s'adapte à N'IMPORTE QUELS axes (aucune liste figée).
+const PALETTE=["#2dd4bf","#818cf8","#f472b6","#fbbf24","#4ade80","#38bdf8","#f87171","#c084fc","#fb923c","#34d399","#a78bfa","#e879a9","#facc15","#22d3ee"];
+// Normalise un axe bruité : retire emojis/symboles et le suffixe après un tiret long.
+function normAxe(a){
+  a=String(a==null?"":a)
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️]/gu,"")
+    .replace(/^[\s\/·|]+/,"").trim();
+  a=a.split(/\s+[—–]\s+/)[0].trim();       // "Frontier — où va le marché" -> "Frontier"
+  return a||"Autres";
+}
+let AXCOLOR={}, AXORDER=[];
+const RUNID=(location.pathname.match(/\/m\/([^\/]+)/)||[])[1]||"";
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const href=id=>'/r/'+encodeURIComponent(RUNID)+'/?f='+encodeURIComponent(id);
+
+fetch("findings.json").then(r=>r.json()).then(doc=>{
+  const l=document.getElementById("loading");if(l)l.remove();
+  const DATA=(doc.findings||[]).map((f,i)=>({id:f.id||("F"+(i+1)),axe:normAxe(f.axe),title:f.title||f.id}));
+  // axes présents, triés par fréquence décroissante, colorés cycliquement
+  const counts={}; DATA.forEach(d=>counts[d.axe]=(counts[d.axe]||0)+1);
+  AXORDER=Object.keys(counts).sort((a,b)=>counts[b]-counts[a]||a.localeCompare(b));
+  AXCOLOR={}; AXORDER.forEach((a,i)=>AXCOLOR[a]=PALETTE[i%PALETTE.length]);
+  document.getElementById("title").textContent=doc.topic||doc.watch||doc.run||"Ta veille";
+  document.getElementById("sub").textContent=(doc.run||"")+(doc.owner?" · "+doc.owner:"");
+  document.getElementById("rt").innerHTML=DATA.length+" signaux · "+AXORDER.length+" axes";
+  buildList(DATA); buildRadial(DATA);
+}).catch(e=>{const l=document.getElementById("loading");if(l)l.textContent="Impossible de charger findings.json";});
+
+function buildList(DATA){
+  const host=document.getElementById("list");
+  AXORDER.forEach(a=>{
+    const color=AXCOLOR[a]||"#64748b";
+    const g=document.createElement("div");g.className="grp";
+    g.innerHTML=`<span class="pip" style="background:${color}"></span>${esc(a)} <span style="color:var(--faint);font-weight:500">· ${DATA.filter(d=>d.axe===a).length}</span>`;
+    host.appendChild(g);
+    DATA.filter(d=>d.axe===a).forEach(d=>{
+      const el=document.createElement("a");el.className="li";el.href=href(d.id);el.target="iw-review";el.rel="noopener";
+      el.innerHTML=`<span class="dot" style="background:${color}"></span><span>${esc(d.title)}</span><span class="go">ouvrir ↗</span>`;
+      host.appendChild(el);
+    });
+  });
+}
+
+function buildRadial(DATA){
+  const stage=document.getElementById('stage'),fitwrap=document.getElementById('fitwrap'),
+        canvas=document.getElementById('canvas'),svg=document.getElementById('links');
+  stage.hidden=false; document.getElementById('zoom').hidden=false; document.getElementById('hint').hidden=false;
+  const axes=AXORDER.slice();
+  const ordered=[]; axes.forEach(a=>DATA.filter(d=>d.axe===a).forEach(d=>ordered.push(Object.assign({axe:a},d))));
+  const N=ordered.length, step=2*Math.PI/N, start=-Math.PI/2;
+  const R_LEAF=Math.max(560, N*44), R_AX=Math.round(R_LEAF*0.42);
+  const PAD=170, SIZE=2*(R_LEAF+PAD), cx=SIZE/2, cy=SIZE/2;
+  canvas.style.width=SIZE+'px';canvas.style.height=SIZE+'px';svg.setAttribute('viewBox',`0 0 ${SIZE} ${SIZE}`);
+  const pos=(r,ang)=>[cx+r*Math.cos(ang),cy+r*Math.sin(ang)];
+  const pathd=(x1,y1,x2,y2)=>{const mx=(x1+x2)/2;return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;};
+  const add=(tag,cls,x,y,html)=>{const el=document.createElement(tag);el.className=cls;el.style.left=x+'px';el.style.top=y+'px';el.innerHTML=html;canvas.appendChild(el);return el;};
+  const link=(x1,y1,x2,y2,color,w)=>{const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',pathd(x1,y1,x2,y2));p.setAttribute('fill','none');p.setAttribute('stroke',color);p.setAttribute('stroke-width',w||2);p.setAttribute('stroke-opacity','.5');svg.appendChild(p);};
+  const axAng={}; axes.forEach(a=>{const idxs=ordered.map((d,i)=>d.axe===a?i:-1).filter(i=>i>=0);axAng[a]=start+((idxs[0]+idxs[idxs.length-1])/2+0.5)*step;});
+  add('div','node hub',cx,cy,`<div class="k">Sujet</div><div class="t">${esc(document.getElementById('title').textContent)}</div>`);
+  axes.forEach(a=>{const color=AXCOLOR[a]||"#64748b";const [axx,axy]=pos(R_AX,axAng[a]);
+    link(cx,cy,axx,axy,color,3);
+    const el=add('div','node axis',axx,axy,`${esc(a)} <span class="cnt">· ${DATA.filter(d=>d.axe===a).length}</span>`);
+    el.style.color=color; el.style.borderLeft='3px solid '+color;});
+  ordered.forEach((d,i)=>{const color=AXCOLOR[d.axe]||"#64748b";const ang=start+(i+0.5)*step;
+    const [axx,axy]=pos(R_AX,axAng[d.axe]);const [lx,ly]=pos(R_LEAF,ang);
+    link(axx,axy,lx,ly,color,1.5);
+    const el=add('a','leaf',lx,ly,`<span class="go">ouvrir ↗</span><span class="dot" style="background:${color}"></span>${esc(d.title)}`);
+    el.href=href(d.id);el.target='iw-review';el.rel='noopener';el.setAttribute('aria-label',d.title+' — ouvrir la fiche');});
+
+  let z=1,px=0,py=0;
+  const apply=()=>{fitwrap.style.transform=`translate(${px}px,${py}px) scale(${z})`;};
+  const clamp=v=>Math.min(2.6,Math.max(0.25,v));
+  function fit(){const vw=stage.clientWidth,vh=stage.clientHeight;z=clamp(Math.min((vw-40)/SIZE,(vh-90)/SIZE));px=(vw-SIZE*z)/2;py=(vh-SIZE*z)/2+30;apply();}
+  function zoomAt(cxp,cyp,nz){nz=clamp(nz);const k=nz/z;px=cxp-(cxp-px)*k;py=cyp-(cyp-py)*k;z=nz;apply();}
+  stage.addEventListener('wheel',e=>{e.preventDefault();const r=stage.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,z*(e.deltaY<0?1.12:1/1.12));},{passive:false});
+  document.getElementById('zin').onclick=()=>zoomAt(stage.clientWidth/2,stage.clientHeight/2,z*1.2);
+  document.getElementById('zout').onclick=()=>zoomAt(stage.clientWidth/2,stage.clientHeight/2,z/1.2);
+  function home(){z=clamp(0.9);px=stage.clientWidth/2-cx*z;py=(stage.clientHeight+60)/2-cy*z;apply();}
+  document.getElementById('zfit').onclick=fit;
+  let drag=false,sx,sy,spx,spy,moved=false;
+  stage.addEventListener('mousedown',e=>{moved=false;if(e.target.closest('a.leaf'))return;drag=true;sx=e.clientX;sy=e.clientY;spx=px;spy=py;stage.classList.add('grabbing');});
+  window.addEventListener('mouseup',()=>{drag=false;stage.classList.remove('grabbing');});
+  window.addEventListener('mousemove',e=>{if(!drag)return;if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>3)moved=true;px=spx+(e.clientX-sx);py=spy+(e.clientY-sy);apply();});
+  canvas.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopPropagation();}},true);
+  fit(); window.addEventListener('resize',fit);
+}
+</script>
+</body>
+</html>

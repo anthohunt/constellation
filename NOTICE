@@ -1,0 +1,20 @@
+Constellation
+Copyright 2026 Anthony Hunt
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Texts, agent instructions (skills/), documents and diagrams are licensed under
+Creative Commons Attribution 4.0 International (see LICENSE-docs).
+
+This product includes third-party software:
+
+- three.js r185, OrbitControls, CSS2DRenderer
+  Copyright 2010-2026 Three.js Authors — MIT License
+  (server/public/vendor/, viewer/vendor/; license header kept in each file)
+  https://github.com/mrdoob/three.js
+
+Loaded at runtime from public CDNs, not redistributed here:
+
+- marked (MIT License) — https://github.com/markedjs/marked, via cdn.jsdelivr.net
+- Fonts Fraunces, Hanken Grotesk, IBM Plex Mono, Instrument Sans, Inter,
+  Newsreader, Space Grotesk — SIL Open Font License 1.1, via Google Fonts
+- PostHog browser snippet (MIT License), injected only when POSTHOG_KEY is set

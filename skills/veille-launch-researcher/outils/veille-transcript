@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# veille-transcript — rend le TEXTE d'une video ou d'un podcast, pas sa page.
+#
+#   veille-transcript <url>
+#
+# Une page ne porte pas ce qui est dit : titre, description, et rien d'autre.
+# Un agent qui la « lit » rapporte le resume de l'auteur, jamais le contenu.
+#
+# TROIS VOIES, prises dans cet ordre. Aucune ne depend d'une machine tierce
+# sauf la derniere, qui n'est qu'un filet.
+#
+# 1. YOUTUBE — la piste automatique DANS LA LANGUE DE LA VIDEO (suffixe
+#    `-orig`). YouTube ferme toute adresse de datacentre, donc la demande sort
+#    par Cloudflare WARP en mode proxy : le reste de la machine n'est pas
+#    touche, seul ce processus emprunte cette sortie.
+#
+#    POURQUOI LA PISTE `-orig`, ET PAS « fr ». Le 429 « Too Many Requests » ne
+#    frappe QUE les sous-titres AUTO-TRADUITS — demander « fr » sur une video
+#    anglaise declenche une traduction a la volee, et c'est elle qui est
+#    limitee. La piste d'origine, elle, se sert sans quota. YouTube en genere
+#    une pour presque toute video : c'est la voie normale, pas un cas de
+#    chance. *Mesure : la meme recuperation a coute 351 s en reessais sur la
+#    piste traduite, contre quelques secondes sur la piste d'origine.*
+#
+# 2. TOUT LE RESTE, ET YOUTUBE SANS SOUS-TITRES — le serveur telecharge le son,
+#    le transcrit en local (faster-whisper, CPU), puis EFFACE. Rien ne sort,
+#    rien ne se paie. Mesure : 60 s d'audio en ~10 s avec le modele `base`.
+#
+# 3. FILET — si WARP est coupe, la demande passe par une machine qui sort en
+#    adresse residentielle. Jamais necessaire tant que 1 et 2 tiennent.
+#
+# Rend le texte sur stdout, sans horodatage ni balise.
+#   0 = texte obtenu · 3 = aucune voie disponible · 4 = pas de texte a cette adresse
+# Un agent qui recoit 3 ou 4 CONSIGNE le fait et n'invente rien depuis la page.
+set -uo pipefail
+
+URL="${1:?usage: veille-transcript <url>}"
+MODELE="${VEILLE_WHISPER:-small}"
+PROXY="${VEILLE_PROXY:-socks5://127.0.0.1:40000}"
+RELAIS="${VEILLE_RELAIS:-}"   # ex. utilisateur@machine-relais (Windows) ; vide = voie 3 coupee
+CLE="${VEILLE_RELAIS_CLE:-$HOME/.ssh/id_rsa_tunnel}"
+YTDLP="${YTDLP:-/usr/local/bin/yt-dlp}"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+nettoyer_vtt() {
+  python3 -c '
+import sys, re
+vu, out = None, []
+for l in sys.stdin.read().splitlines():
+    l = l.strip()
+    if not l or l.startswith(("WEBVTT", "Kind:", "Language:", "NOTE")): continue
+    if "-->" in l: continue
+    l = re.sub(r"<[^>]+>", "", l).strip()
+    if not l or l == vu: continue
+    vu = l; out.append(l)
+print(re.sub(r"\s+", " ", " ".join(out)).strip())
+'
+}
+
+transcrire_le_son() {   # $1 = fichier media
+  ffmpeg -v error -y -i "$1" -ar 16000 -ac 1 "$TMP/a.wav" </dev/null || return 4
+  rm -f "$1"                      # l'original part des qu'on a le son
+  python3 - "$TMP/a.wav" "$MODELE" <<'PY'
+import sys
+from faster_whisper import WhisperModel
+m = WhisperModel(sys.argv[2], device="cpu", compute_type="int8")
+segs, _ = m.transcribe(sys.argv[1], language=None, vad_filter=True)
+t = " ".join(s.text.strip() for s in segs).strip()
+if not t: sys.exit(4)
+print(t)
+PY
+}
+
+est_youtube() { printf '%s' "$URL" | grep -qiE 'youtube\.com|youtu\.be'; }
+
+# ── Voie 1 : YouTube, piste d'origine
+if est_youtube; then
+  PISTES=$("$YTDLP" --proxy "$PROXY" --impersonate chrome --list-subs "$URL" 2>/dev/null)
+  # une piste d'origine porte le suffixe -orig ; sinon on prend un sous-titre
+  # ECRIT par l'auteur, qui n'est pas une traduction non plus.
+  LANG=$(printf '%s' "$PISTES" | awk '/-orig[[:space:]]/{print $1; exit}')
+  MODE="--write-auto-subs"
+  if [ -z "$LANG" ]; then
+    LANG=$(printf '%s' "$PISTES" | awk '/^[a-z]{2}(-[A-Za-z]+)?[[:space:]]/ && !/-orig/{print $1; exit}')
+    MODE="--write-subs"
+  fi
+  if [ -n "$LANG" ]; then
+    "$YTDLP" --proxy "$PROXY" --impersonate chrome --skip-download $MODE \
+      --sub-langs "$LANG" --sub-format vtt -o "$TMP/y" "$URL" >/dev/null 2>&1
+    F=$(ls "$TMP"/y.*.vtt 2>/dev/null | head -1)
+    if [ -s "${F:-}" ]; then cat "$F" | nettoyer_vtt; exit 0; fi
+  fi
+  # pas de piste utilisable : on prend le son et on le transcrit nous-memes
+  "$YTDLP" --proxy "$PROXY" --impersonate chrome -q -f "bestaudio/best" \
+    -o "$TMP/m.%(ext)s" "$URL" >/dev/null 2>&1
+  M=$(ls "$TMP"/m.* 2>/dev/null | head -1)
+  if [ -s "${M:-}" ]; then transcrire_le_son "$M"; exit $?; fi
+else
+  # ── Voie 2 : tout le reste — on fait le travail nous-memes
+  M="$TMP/m"
+  if printf '%s' "$URL" | grep -qiE '\.(mp3|m4a|wav|ogg|opus|mp4|webm|m4v)(\?|$)'; then
+    curl -sL -m 900 "$URL" -o "$M" || M=""
+  else
+    "$YTDLP" -q -f "bestaudio/best" -o "$TMP/m.%(ext)s" "$URL" >/dev/null 2>&1
+    M=$(ls "$TMP"/m.* 2>/dev/null | head -1)
+  fi
+  if [ -s "${M:-}" ]; then transcrire_le_son "$M"; exit $?; fi
+  echo "aucun media a lire a cette adresse" >&2; exit 4
+fi
+
+# ── Voie 3 : le filet residentiel, pour YouTube seulement
+[ -n "$RELAIS" ] || { echo "aucune voie disponible pour cette source (VEILLE_RELAIS non defini)" >&2; exit 3; }
+NOM="vt$$"
+ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "$CLE" "$RELAIS" \
+  "cd %TEMP% & del $NOM* 2>nul & python -m yt_dlp --skip-download --write-auto-sub --write-sub --sub-lang \"fr,en\" --sub-format vtt -o \"$NOM\" \"$URL\"" \
+  >/dev/null 2>&1
+[ $? -ge 255 ] && { echo "aucune voie disponible pour cette source" >&2; exit 3; }
+TXT=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "$CLE" "$RELAIS" \
+  "type %TEMP%\\$NOM.fr.vtt 2>nul || type %TEMP%\\$NOM.en.vtt 2>nul" 2>/dev/null)
+ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "$CLE" "$RELAIS" \
+  "del %TEMP%\\$NOM* 2>nul" >/dev/null 2>&1
+[ -z "$TXT" ] && { echo "pas de texte disponible pour cette source" >&2; exit 4; }
+printf '%s\n' "$TXT" | nettoyer_vtt

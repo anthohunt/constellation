@@ -1,0 +1,27 @@
+{
+  "owner": "demo",
+  "subject_default": "solaire-maison",
+  "theme": "Énergie solaire chez soi (exemple fictif)",
+  "language": "fr",
+  "tone": "clair, chiffré",
+  "audience": "particulier curieux",
+  "threshold": 7,
+  "volume": 9,
+  "axes": [
+    {
+      "name": "Rendements mesurés",
+      "desc": "bancs d'essai, suivis de production, retours chiffrés d'installations réelles",
+      "freshness": "mois"
+    },
+    {
+      "name": "Batteries & stockage",
+      "desc": "ce qui change l'autoconsommation, mesuré, pas promis",
+      "freshness": "semaine"
+    },
+    {
+      "name": "Démarches & aides",
+      "desc": "règles, tarifs de rachat, aides publiques",
+      "freshness": "mois"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# veille-source-nouveautes — ce qu'une source tenue a publie de NEUF.
+#
+#   veille-source-nouveautes <url-de-la-source> <fraicheur> [archives.json]
+#
+#   fraicheur : 48h | semaine | mois | trimestre | annee   (celle de l'axe)
+#
+# POURQUOI CETTE COMMANDE. Une source nommee ne se « consulte » pas, elle
+# s'ENUMERE. Sans enumeration, un chasseur ouvre la page d'accueil de la chaine,
+# tombe sur ce que l'algorithme y met, et rate ce qui est sorti la veille. Et
+# sans ecart aux archives, chaque run reprend les memes publications : le
+# lecteur relit les memes histoires et croit que rien n'a bouge.
+#
+# Une chaine YouTube s'enumere par son FLUX (feeds/videos.xml) : quinze
+# publications AVEC leur date, en une requete, sans quota. La page d'accueil,
+# elle, ne date rien et montre ce que l'algorithme decide.
+#
+# Rend une ligne par publication NEUVE, la plus recente d'abord :
+#   <date ISO> <TAB> <url> <TAB> <titre>
+# Sortie vide = rien de neuf dans la fenetre. C'est un resultat valide.
+set -uo pipefail
+
+URL="${1:?usage: veille-source-nouveautes <url> <fraicheur> [archives.json]}"
+FRAICHEUR="${2:-mois}"
+ARCHIVES="${3:-}"
+PROXY="${VEILLE_PROXY:-socks5://127.0.0.1:40000}"
+OUTILS="${VEILLE_OUTILS:-/usr/local/lib/veille}"
+UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+case "$FRAICHEUR" in
+  48h|2j)        JOURS=2   ;;
+  semaine|7j)    JOURS=7   ;;
+  mois|30j)      JOURS=30  ;;
+  trimestre|90j) JOURS=90  ;;
+  annee|an|365j) JOURS=365 ;;
+  *)             JOURS=30  ;;
+esac
+DEPUIS=$(date -u -d "-$JOURS days" +%Y%m%d)
+
+FLUX="$URL"
+if printf '%s' "$URL" | grep -qiE 'youtube\.com|youtu\.be'; then
+  CID=$(printf '%s' "$URL" | grep -oE 'channel/UC[A-Za-z0-9_-]{20,24}' | cut -d/ -f2)
+  if [ -z "$CID" ]; then
+    CID=$(curl -sL -m 40 --socks5 "${PROXY#socks5://}" -A "$UA" "$URL" \
+          | grep -oE 'channel/UC[A-Za-z0-9_-]{20,24}' | head -1 | cut -d/ -f2)
+  fi
+  [ -z "$CID" ] && { echo "chaine introuvable : $URL" >&2; exit 4; }
+  FLUX="https://www.youtube.com/feeds/videos.xml?channel_id=$CID"
+fi
+
+curl -sL -m 40 -A "$UA" "$FLUX" \
+  | python3 "$OUTILS/parse-flux.py" \
+  | python3 "$OUTILS/filtrer-nouveautes.py" "$DEPUIS" "$ARCHIVES"

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Watch — Feedback Report</title>
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f7f6f3; --text:#37352f; --muted:#787066; --hair:#e9e7e1;
+    --accent:#2f6fb3; --success:#3b6d4a; --successbg:#eaf3ec; --warn:#8a5a12; --warnbg:#faf0db;
+    --radius:8px; --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#191919;--surface:#252525;--text:#e9e7e1;--muted:#9b958b;--hair:#363432;
+      --successbg:#1e2d22;--warnbg:#2e2410;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
+    font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:740px;margin:0 auto;padding:48px 28px 64px;}
+  h1{font-size:30px;font-weight:600;margin:0 0 4px;letter-spacing:-0.01em;}
+  h3{font-size:17px;font-weight:600;margin:0;}
+  .meta{font-size:14px;color:var(--muted);margin:0 0 28px;}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 36px;}
+  @media (max-width:560px){.stats{grid-template-columns:repeat(2,1fr);}}
+  .stat{background:var(--surface);border-radius:var(--radius);padding:14px 16px;}
+  .stat .lbl{font-size:12px;color:var(--muted);}
+  .stat .num{font-size:24px;font-weight:600;margin-top:2px;}
+  .stat .num.ok{color:var(--success);}
+  .sec-h{display:flex;align-items:center;gap:8px;margin:0 0 8px;}
+  .sec-h .ic{font-size:18px;}
+  .rule{border-top:0.5px solid var(--hair);margin-bottom:12px;}
+  ul.clean{list-style:none;padding:0;margin:0 0 32px;}
+  ul.clean li{padding:7px 0;border-bottom:0.5px solid var(--hair);}
+  ul.clean li:last-child{border-bottom:none;}
+  ul.dash{padding-left:18px;margin:0 0 32px;}
+  ul.dash li{padding:3px 0;}
+  code{background:var(--surface);border-radius:4px;padding:1px 6px;font-size:13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;}
+  .pill{font-size:13px;padding:6px 12px;border-radius:var(--radius);}
+  .pill.up{background:var(--successbg);color:var(--success);}
+  .pill.down{background:var(--warnbg);color:var(--warn);}
+  details{border-top:0.5px solid var(--hair);padding:8px 0;}
+  summary{cursor:pointer;font-weight:500;color:var(--muted);font-size:14px;}
+  details[open] summary{margin-bottom:8px;color:var(--text);}
+  .foot{margin-top:40px;padding-top:16px;border-top:0.5px solid var(--hair);
+    font-size:13px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>AI Watch — feedback report</h1>
+  <p class="meta">{{LENS}} lens &middot; run {{RUN_DATE}} &middot; compiled {{COMPILED_DATE}}<br>
+    Reviewers: {{REVIEWERS}} &middot; {{N_FINDINGS}} findings reviewed (blind scoring)</p>
+
+  <div class="stats">
+    <div class="stat"><div class="lbl">Kept (&ge;7)</div><div class="num ok">{{KEPT}}</div></div>
+    <div class="stat"><div class="lbl">Below bar</div><div class="num">{{BELOW}}</div></div>
+    <div class="stat"><div class="lbl">Fixed now</div><div class="num">{{FIXED_N}}</div></div>
+    <div class="stat"><div class="lbl">Rules learned</div><div class="num">{{RULES_N}}</div></div>
+  </div>
+
+  <div class="sec-h"><h3>Fixed now — live deliverable</h3></div>
+  <div class="rule"></div>
+  <ul class="clean">
+    {{FIXED_LIST}}
+  </ul>
+
+  <div class="sec-h"><h3>Learned for next runs</h3></div>
+  <div class="rule"></div>
+  <ul class="dash">
+    {{LEARNED_LIST}}
+  </ul>
+
+  <div class="sec-h"><h3>Coverage tuned — this lens</h3></div>
+  <div class="rule"></div>
+  <div class="pills">
+    {{COVERAGE_PILLS}}
+  </div>
+
+  <details>
+    <summary>Reviewer comments — full log</summary>
+    {{REVIEWER_LOG}}
+  </details>
+
+  <p class="foot">Generated after every review cycle as a standing part of the watch pipeline.</p>
+</div>
+</body>
+</html>

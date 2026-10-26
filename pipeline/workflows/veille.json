@@ -1,0 +1,1769 @@
+{
+  "$schema": "../runtime/workflow.schema.json",
+  "id": "veille",
+  "name": "Veille — constellation",
+  "description": "Pipeline de veille en 8 étapes. Chaque nœud est lançable seul depuis l'UI : il spawn un agent avec son objectif et ses livrables, et chaque etape est suivie de sa vérification, qui juge ses livrables contre les transcripts. Le graphe EST la vérité exécutable.",
+  "nodes": [
+    {
+      "id": "preparer",
+      "n": 1,
+      "type": "agent",
+      "name": "Préparer la run",
+      "modele": "opus",
+      "entree": [
+        "WORKSPACE.txt"
+      ],
+      "objectif": "Vérifier que la machine est prete, puis monter un terrain de travail propre. L'équipe comprend OBLIGATOIREMENT un éclaireur.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-start"
+      ],
+      "tools": [
+        "WebSearch",
+        "Bash",
+        "Read",
+        "Write",
+        "TodoWrite"
+      ],
+      "taches": [
+        "Tester la recherche en ligne",
+        "Vérifier la mémoire libre",
+        "Vérifier qu'aucune run concurrente ne tourne sur la même veille",
+        "Identifier le lecteur",
+        "Déduire le casting des axes",
+        "Créer le dossier de travail",
+        "Copier les veilles passées encore dans la fenêtre",
+        "Créer le tableau de comptage"
+      ],
+      "livrables": [
+        "state/prevol/",
+        "subject.md",
+        "profile.md",
+        "run-config.json",
+        "state/regles-axes.json",
+        "casting.json",
+        "archives/",
+        "state/comptes-chasse.json"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "livrables_conditionnels": {
+        "archives/": {
+          "exige_si_present": "~/veille-owners/{owner}/db/",
+          "sinon": "premiere run de cet owner : son silo ne porte aucun finding, il n'y a rien a recopier — l'anti-doublon n'a simplement rien a filtrer"
+        }
+      },
+      "suivant": [
+        "verif-preparation"
+      ],
+      "agents": [
+        {
+          "role": "Le préparateur",
+          "outils": [
+            "recherche web — WebSearch/WebFetch (juste le test)",
+            "shell / terminal — Bash",
+            "SSH vers le serveur du site ($VEILLE_SERVER, réglage) — Bash (ssh) : y rapatrier profil, sujet, archives, préférences",
+            "lecture-écriture fichiers du workspace local — Read/Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-start",
+              "role": "l'ouverture de run : owner actif, workspace, contexte à charger, archives à recompter, tableau de comptage"
+            }
+          ],
+          "contexte": "~121k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Tester la recherche en ligne",
+          "objectif": "Savoir si les agents pourront chercher",
+          "livrable": "state/prevol/1.1-recherche.md — la requête, un extrait des résultats, le verdict",
+          "si_succes": "1.2",
+          "si_echec": "blocage dur — le quota tient à la session, pas à la machine : relancer en session neuve"
+        },
+        {
+          "titre": "Vérifier la mémoire libre",
+          "objectif": "Savoir combien de chasseurs on peut lancer en parallèle",
+          "livrable": "state/prevol/1.2-memoire.md — la mémoire libre relevée, le mode de lancement retenu",
+          "si_succes": "1.3",
+          "si_echec": "moins de ~4 Go : lancer les agents par paires au lieu de tous d'un coup"
+        },
+        {
+          "titre": "Vérifier qu'aucune run concurrente ne tourne sur la même veille",
+          "objectif": "Ne pas doubler une run déjà en cours sur le même couple veille + owner",
+          "livrable": "state/prevol/1.3-concurrence.md — les runs en vie, leur veille et leur owner, le verdict",
+          "detail": "- Deux veilles DIFFÉRENTES en parallèle est autorisé, et deux owners aussi\n- Le doublon, c'est la même veille pour le même owner",
+          "si_succes": "1.4",
+          "si_echec": "doublon : ne pas démarrer — reprendre la run existante, ou l'arrêter par PID avant de relancer"
+        },
+        {
+          "titre": "Identifier le lecteur",
+          "objectif": "Savoir pour qui on chasse, et charger son profil",
+          "livrable": "state/prevol/1.4-lecteur.md — l'owner résolu, le chemin de son silo, les axes de son profil",
+          "detail": "- L'owner actif se résout par le silo, jamais « le plus récent »\n- Le profil est posé en amont par le wizard : on le charge, on ne le crée pas",
+          "si_succes": "1.5",
+          "si_echec": "owner introuvable ou profil absent : ne pas inventer — s'arrêter et le demander"
+        },
+        {
+          "titre": "Déduire le casting des axes",
+          "par": "le préparateur",
+          "objectif": "Un chasseur par axe, plus les transversaux et l'éclaireur",
+          "livrable": "casting.json — budget d'effort en tête, puis un chasseur par ligne",
+          "detail": "- Le casting se DÉDUIT des axes : rien à arbitrer\n- Un chasseur = son axe + sa fraîcheur, rien d'autre\n- Plus 2 transversaux fixes (Signal faible, Contre-preuve) et 1 éclaireur (axe Découverte)\n- TOUS portent une fraîcheur, transversaux et éclaireur compris (défaut : mois)\n- LES SOURCES TENUES D'UN AXE PARTENT AVEC SON CHASSEUR : recopie le champ `sources` de l'axe dans la ligne de son chasseur, et `sources.free` du profil dans la ligne de CHACUN\n- Sans ce report, la personne a nomme les sources auxquelles elle tient et aucun chasseur ne les voit. Un axe sans sources garde le champ vide : c'est normal",
+          "si_succes": "1.6",
+          "si_echec": "casting sans éclaireur : la vérification refusera l'étape — l'ajouter avant de continuer"
+        },
+        {
+          "titre": "Créer le dossier de travail",
+          "objectif": "Avoir un workspace qui survivra à toute la run",
+          "livrable": "<FLUX_RUNS_HOME>/veille-runs/<veille>-<owner>-<horodatage>/ avec ses sous-dossiers, et le contexte rapatrié du serveur : subject.md, profile.md, run-config.json, state/regles-axes.json",
+          "detail": "- Jamais sous %TEMP% : Windows peut le nettoyer en pleine run\n- Ces fichiers viennent du silo de l'owner, ils ne se rédigent pas ici\n- Les règles par axe se rapatrient depuis preferences/regles-axes.json du silo : sans elles la chasse n'a rien à viser\n- `WORKSPACE.txt` est déjà là : le flux l'écrit à l'ouverture de la run, il sert de repère de fraîcheur",
+          "si_succes": "1.7",
+          "si_echec": "le serveur ne répond pas : vérifier la connexion SSH avant d'aller plus loin — sans le profil ni le sujet, la chasse part à l'aveugle"
+        },
+        {
+          "titre": "Copier les veilles passées encore dans la fenêtre",
+          "objectif": "Qu'un chasseur ne ressorte pas un finding déjà livré et encore d'actualité",
+          "livrable": "archives/ — les findings dont la date tombe dans la fraîcheur de leur axe",
+          "detail": "- La fenêtre est celle de l'AXE du finding, pas une durée globale\n- Hors fenêtre, un finding ne peut plus ressortir : ne pas le copier",
+          "si_succes": "1.8",
+          "si_echec": "aucune archive : c'est la première run sur cette veille — continuer, l'anti-doublon n'a simplement rien à filtrer"
+        },
+        {
+          "titre": "Créer le tableau de comptage",
+          "objectif": "Donner au chef de chasse de quoi décider qui relance une passe et qui s'arrête",
+          "livrable": "state/comptes-chasse.json — vide, prêt pour la 1re passe",
+          "detail": "- Une ligne par chasseur et par passe : sources ouvertes, formulations essayées, sources atteintes hors liste de resultats, hors moteur généraliste, findings retenus\n- Le budget de référence vit dans casting.json : ne pas le recopier ici",
+          "si_succes": "étape 1 — vérification",
+          "si_echec": "le tableau ne s'écrit pas : le chef de chasse piloterait à l'aveugle — corriger avant de lancer les chasseurs"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "owner: owner et sujet resolus",
+          "axes: axes retenus → chasseurs au casting",
+          "prevol: controles de pre-vol passes → bloques",
+          "synchro: archives et preferences synchronisees (oui/non, et depuis quand)"
+        ],
+        "a_dire": [
+          "CE QUI A FAILLI BLOQUER la run et ne l'a pas bloquee — un pre-vol vert qui a demande trois essais n'est pas un pre-vol vert",
+          "LE PROFIL APPLIQUE : ce que le feedback de la run precedente a change au casting ou aux regles d'axes",
+          "CE QUI MANQUE ENCORE et que l'etape suivante devra deviner"
+        ]
+      }
+    },
+    {
+      "id": "verif-preparation",
+      "n": 1,
+      "type": "agent",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "state/prevol/",
+        "subject.md",
+        "profile.md",
+        "run-config.json",
+        "state/regles-axes.json",
+        "casting.json",
+        "archives/",
+        "state/comptes-chasse.json"
+      ],
+      "objectif": "Constater que la run peut demarrer : les outils repondent, le lecteur est le bon, le casting suit son profil, et le dossier de travail contient ce que la chasse va lire. UN SEUL agent, huit constats, un verdict binaire.",
+      "taches": [
+        "Constater le pre-vol et rendre le verdict"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Constater le pre-vol et rendre le verdict",
+          "par": "le verificateur du pre-vol",
+          "objectif": "Savoir si la chasse peut partir sans mauvaise surprise",
+          "livrable": "verifications/etape-1/registre.json — le verdict et les huit constats ; verifications/etape-1.md — une page, verdict en tete, chaque constat avec la valeur lue",
+          "detail": "- SEUL : aucun sous-agent, aucun lot, aucun registre d'acquis, aucun bareme par points\n- LES HUIT CONSTATS, avec la valeur lue a chaque fois :\n  1. la recherche en ligne a ete testee et repond (state/prevol/1.1-recherche.md)\n  2. la memoire libre est relevee et le mode de lancement en decoule (1.2-memoire.md)\n  3. aucune autre run ne tourne sur la meme veille (1.3-concurrence.md)\n  4. le lecteur resolu est celui du silo, avec ses axes (1.4-lecteur.md contre profile.md)\n  5. le casting couvre TOUS les axes du profil, sans doublon (casting.json contre profile.md)\n  6. le contexte est rapatrie : subject.md, profile.md, run-config.json non vides\n  7. les archives ne portent que des findings encore dans la fenetre de leur axe\n  8. le tableau de comptage existe et part vide (state/comptes-chasse.json)\n- TROIS FAUTES SEULEMENT BLOQUENT : un livrable absent ou vide, le mauvais lecteur ou un casting qui rate un axe, une archive hors fenetre. Le reste se consigne\n- SCORE BINAIRE : 100 si les huit constats tiennent et qu'aucune des trois fautes n'apparait, 0 sinon\n- TU NE DECOUPES PAS un fichier en champs, tu ne relis aucun transcript, tu ne rejoues pas les tests de pre-vol (sauf le 1, ou une requete coute moins cher que le doute)\n- Tu ne juges ni le sujet de la veille ni la pertinence des axes : ils viennent du profil"
+        }
+      ],
+      "livrables": [
+        "verifications/etape-1/",
+        "verifications/etape-1.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "chasse"
+      ],
+      "consignes": [
+        "veille-verif-prevol"
+      ],
+      "agents": [
+        {
+          "role": "Le verificateur du pre-vol",
+          "outils": [
+            "lecture des livrables et du profil — Read",
+            "une requete de controle — WebSearch",
+            "verdict — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-prevol",
+              "role": "les huit constats, ce qui bloque et ce qui se consigne, le verdict binaire"
+            }
+          ],
+          "contexte": "~20k"
+        }
+      ],
+      "verification": true,
+      "tools": [
+        "Read",
+        "Write",
+        "WebFetch",
+        "Bash",
+        "TodoWrite"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur la preparation, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (livrable absent, definition close introuvable)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "chasse",
+      "n": 2,
+      "type": "fanout",
+      "name": "Chasse",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-1/",
+        "verifications/etape-1.md"
+      ],
+      "objectif": "Un chasseur par axe (+ transversaux + éclaireur) FOUILLE, remonte des pistes sourcées et pose la tier de chacune contre les règles de SON axe. Il ne vérifie pas son propre travail : la vérification est un nœud séparé. Budget d'effort imposé, sortie libre. Le vivier monte entier : la chasse déduplique, elle ne coupe pas.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-launch-researcher",
+        "veille-chasse-tableau"
+      ],
+      "tools": [
+        "WebSearch",
+        "WebFetch",
+        "Bash",
+        "Read",
+        "Write",
+        "TodoWrite",
+        "Task",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "taches": [
+        "Lancer les chasseurs, en parallèle",
+        "Chacun fouille à sa façon, avec un budget d'effort imposé",
+        "Figer et indexer chaque lot trouvé",
+        "Dédupliquer le vivier",
+        "Mettre à jour le tableau de la chasse"
+      ],
+      "livrables": [
+        "pistes-*-T*.md",
+        "state/passants-raw.jsonl",
+        "state/axes-candidats.json",
+        "state/retenus.json",
+        "state/ecartees.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "verif-chasse"
+      ],
+      "agents": [
+        {
+          "role": "Le chef de chasse",
+          "outils": [
+            "lancer les chasseurs et leurs vérificateurs — dispatch, nommage, vagues de ~5",
+            "fichiers du workspace — figer + indexer les lots, tenir comptes-chasse.json",
+            "le script tableau-chasse.py — tableau de bord de la chasse"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-chasse-tableau",
+              "role": "les compteurs de la chasse — tableau de comptage, rendement par chasseur et par passe"
+            }
+          ],
+          "contexte": "~303k"
+        },
+        {
+          "role": "Le chasseur",
+          "outils": [
+            "recherche web — WebSearch/WebFetch",
+            "écriture au fil de l'eau — Write",
+            "pas de SSH, pas de lancement de sous-agent (I3)"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-launch-researcher",
+              "role": "le protocole de fouille — moteur de butinage + les 3 têtes méthodo, les règles dures, le plancher par chasseur"
+            }
+          ],
+          "contexte": "≥ 200k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Lancer les chasseurs, en parallèle",
+          "objectif": "Que tous les axes soient fouillés en une vague, sans qu'un chasseur influence l'autre",
+          "livrable": "un lot de pistes par chasseur : pistes-<slug>-T1.md",
+          "detail": "- Un chasseur par ligne du casting : les axes, les 2 transversaux, l'éclaireur\n- CHACUN part avec les règles de SON axe (state/regles-axes.json) : elles disent ce que le lecteur veut voir chercher, et la vérification contrôlera qu'une requête a visé chacune\n- Tous FRAIS : aucun ne voit le contexte d'un autre\n- Le chef dispatche et compte, il ne chasse pas lui-même\n- LES SOURCES NOMMEES PAR LE LECTEUR S'OUVRENT AVANT LE MOTEUR : ta ligne de casting.json porte `sources` — des adresses a atteindre a la main, pas des mots-cles. Tu les epuises d'abord, puis tu chasses normalement\n- Elles ne remplacent aucun plancher d'effort. Champ vide = rien de tenu sur cet axe\n- UNE VIDEO OU UN PODCAST SE LIT PAR SON TRANSCRIPT, JAMAIS PAR SA PAGE : `veille-transcript <url>` rend le texte. Une page YouTube porte un titre et une description, pas ce qui est dit\n- Elle se debrouille seule : elle prend la piste DANS LA LANGUE DE LA VIDEO, et a defaut telecharge le son et le transcrit sur la machine. Aucune langue a choisir\n- Code 3 ou 4 : tu CONSIGNES « non lisible » et tu passes. Ecrire une fiche depuis le titre fabriquerait un fait que rien ne soutient\n- UNE SOURCE TENUE NE SE CONSULTE PAS, ELLE S'ENUMERE : `veille-source-nouveautes <url> <fraicheur-de-l-axe> archives/` liste ce qu'elle a publie AVEC la date, coupe a ta fraicheur, et ecarte ce qui a deja ete livre\n- Tu prends chaque ligne rendue, tu en lis le texte par `veille-transcript`, et tu juges. Sortie vide = rien de neuf dans la fenetre, resultat valide\n- Sans l'ecart aux archives, chaque run reprend les memes publications et le lecteur relit les memes histoires",
+          "si_succes": "2.2",
+          "si_echec": "un chasseur lancé sans ses règles d'axe : le relancer avec, sinon la vérification refusera l'étape"
+        },
+        {
+          "titre": "Chacun fouille à sa façon, avec un budget d'effort imposé",
+          "objectif": "Empêcher le chasseur de taper une requête, prendre les 5 premiers résultats et s'arrêter là",
+          "livrable": "pistes-<slug>-T<tour>.md — une fiche par piste, aux champs de la definition close (veille-launch-researcher, section « La fiche »). Aucun champ en plus, aucun en moins.",
+          "detail": "- Le budget = le minimum de recherche à faire AVANT d'avoir le droit de rendre son lot\n- ≥15 pages ouvertes · ≥8 façons différentes de formuler la recherche · ≥5 pages atteintes SANS passer par une liste de résultats · ≥3 ailleurs que sur un moteur généraliste\n- « SANS passer par une liste de résultats » = adresse construite à la main, lien suivi depuis une page déjà ouverte, moteur interne ou archive d'un site. Le moteur du harnais ne rend qu'UNE page de résultats : « au-delà de la 1re page » n'existe pas, ne le demande pas\n- UNE PAGE SE TÉLÉCHARGE ET SE LIT SOI-MÊME : `curl -sL -A \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" <url> -o /tmp/p.html` puis Grep/Read. `WebFetch` rend la réponse d'un petit modèle qui a lu la page à ta place — ce qu'il omet, tu ne l'auras jamais, et un contrôle le tiendra pour absent de la page\n- une page ouverte = une page que le chasseur a TELECHARGEE et lue lui-meme (curl puis Grep/Read, ou gh api) ; ni une recherche ni un WebFetch n'ouvrent quoi que ce soit — le premier ne rend que des liens, le second le resume d'un petit modele, et un resume n'atteste aucune page\n- Il compte ce qu'on a cherché, jamais ce qu'on rapporte : zéro piste est une sortie valide\n- Butinage commun : juger à l'odeur avant d'ouvrir, faire évoluer la requête, remonter aux sources, varier les angles, quitter un filon qui s'épuise\n- La tête méthodo dépend du type : PIR pour un axe, Ansoff pour le signal faible, ACH pour la contre-preuve\n- L'ÉCLAIREUR suit le même budget, mais cherche HORS de tous les axes et écrit dans state/axes-candidats.json : une graine rangeable dans un axe existant est refusée\n- Chaque piste sort avec sa TIER, posée contre les règles de son axe, et une phrase qui dit pourquoi celle-là et pas la voisine\n- Il classe, il ne coupe pas — un chasseur qui couperait le ferait sans voir les autres axes. La coupe se fait en fin d'étape, sur le vivier entier",
+          "si_succes": "2.3",
+          "si_echec": "budget non tenu — la verification le constate dans le transcript : le chasseur repart pour un tour, il ne rend pas son lot (5 tours max)"
+        },
+        {
+          "titre": "Figer et indexer chaque lot trouvé",
+          "objectif": "Rassembler toutes les pistes en une seule liste, qui ne bougera plus",
+          "livrable": "state/passants-raw.jsonl — une ligne par piste, tous chasseurs confondus",
+          "detail": "- Chaque chasseur a écrit dans son propre fichier : on recopie tout dans une liste unique, tier comprise\n- À partir de là, personne n'y touche : un lot qui bouge pendant la vérification ne peut plus être jugé",
+          "si_succes": "2.4",
+          "si_echec": "une piste au format illisible : la reprendre auprès de son chasseur, jamais la jeter en silence"
+        },
+        {
+          "titre": "Dédupliquer le vivier",
+          "objectif": "Qu'un même fait ne monte pas deux fois sous deux plumes",
+          "livrable": "state/retenus.json — le vivier dédupliqué ENTIER, chaque entrée avec sa tier, sa tier_justification et son fusion_de ; state/ecartees.md — les doublons fondus, avec l'entrée qui les a absorbés",
+          "detail": "- Fusionner les doublons sur l'ensemble, tous axes confondus — un chasseur ne voit pas les autres axes\n- Le fondu garde la meilleure fiche et cite la source secondaire dans fusion_de\n- Aucune coupe : ce qui a passé la vérification monte, quel qu'en soit le nombre\n- En cas de doute sur deux pistes : les laisser séparées — le regroupement en histoires a lieu à l'étape 3, avec les sources ouvertes",
+          "si_succes": "2.5",
+          "si_echec": "deux pistes que rien ne départage : les garder toutes les deux — une redite se voit à la lecture, une fusion abusive ne se retrouve pas"
+        },
+        {
+          "titre": "Mettre à jour le tableau de la chasse",
+          "par": "le chef de chasse",
+          "objectif": "Voir d'un coup d'oeil, a chaque tour, ce que chaque chasseur a rendu et qui repart",
+          "livrable": "state/comptes-chasse.json — une ligne par chasseur et par tour",
+          "detail": "- Se deduit des lots de pistes et de state/passants-raw.jsonl : ne pas ressaisir les chiffres a la main\n- Mis a jour a chaque tour, pas ecrit en resume a la fin\n- L'effort, lui, ne se compte pas ici : la verification le lit dans le transcript de chaque chasseur",
+          "si_succes": "étape 2 — vérification",
+          "si_echec": "les comptes ne se deduisent pas des lots : corriger la lecture des lots, jamais ressaisir les chiffres a la main"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "vivier: pistes rendues → fondues au dedoublonnage → au vivier",
+          "par_tier: repartition par tier",
+          "budget_effort: budget d'effort par chasseur : tenu / non tenu, et sur quelle mesure",
+          "hotes: hotes distincts ouverts"
+        ],
+        "a_dire": [
+          "CE QUE LA CHASSE A TROUVE : la piste qui compte le plus, en une phrase, pas la liste",
+          "LES AXES QUI N'ONT RIEN RENDU — zero finding est un resultat valide, il se dit",
+          "LES ECARTS ENTRE CHASSEURS que tu signales sans les trancher (contradictions, doublons non fondus)",
+          "CE QUI A RESISTE : sources mortes, blocages, requetes sans retour"
+        ],
+        "en_reparation": [
+          "corrections appliquees → tentees, et fiches retirees",
+          "prescriptions NON appliquees, chacune avec son motif — une prescription sautee en silence revient a la passe suivante"
+        ]
+      }
+    },
+    {
+      "id": "verif-chasse",
+      "n": 2,
+      "type": "fanout",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "pistes-*-T*.md",
+        "state/passants-raw.jsonl",
+        "state/axes-candidats.json",
+        "state/retenus.json",
+        "state/ecartees.md"
+      ],
+      "objectif": "Fouiller au peigne fin les livrables de l'étape — contre leur définition close, et contre les sources qu'ils citent — et relever les failles. UN vérificateur FRAIS par LOT de livrables, tous en parallèle, aucun n'ayant participé au travail qu'il juge.",
+      "consignes": [
+        "veille-verif-etape",
+        "veille-verif-interet"
+      ],
+      "tools": [
+        "Bash",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Read",
+        "TodoWrite",
+        "WebFetch",
+        "WebSearch",
+        "Write",
+        "Task"
+      ],
+      "taches": [
+        "Recenser les livrables de chaque sous-étape et former les lots",
+        "Fouiller chaque livrable contre sa definition et ses sources",
+        "Agréger les failles en un rapport d'étape"
+      ],
+      "livrables": [
+        "verifications/etape-2/",
+        "verifications/etape-2.md",
+        "verifications/etape-2/questionnaire.json"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "monter"
+      ],
+      "agents": [
+        {
+          "role": "Le chef de vérification",
+          "outils": [
+            "recensement des livrables — Read",
+            "dispatch — dispatch",
+            "agrégation — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "recense les LOTS de livrables, dispatche un verificateur par lot, agrege les failles — et s'il n'y a qu'un seul lot il ne dispatche personne : il juge lui-meme, ecrit le rapport d'etape, et le role du verificateur ne s'instancie pas"
+            }
+          ],
+          "contexte": "~60k"
+        },
+        {
+          "role": "Le vérificateur",
+          "outils": [
+            "lecture des livrables de son lot — Read",
+            "lecture de ses livrables — Read",
+            "ouverture des sources si besoin — WebFetch",
+            "écriture du rapport — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "fouille les livrables d'UN LOT contre leur definition close et les sources qu'ils citent"
+            },
+            {
+              "nom": "veille-verif-interet",
+              "role": "la grille de l'intérêt : est-ce que ce finding CHANGE quelque chose pour CE lecteur"
+            }
+          ],
+          "contexte": "~80k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Recenser les livrables de chaque sous-étape et former les lots",
+          "par": "le chef de vérification",
+          "objectif": "Fixer le périmètre AVANT de juger, pour que personne ne choisisse ce qu'il regarde, et EXCLURE du perimetre ce qui porte deja un verdict conforme a empreinte inchangee",
+          "livrable": "verifications/etape-2/perimetre.md — une ligne par sous-etape avec son livrable, LA LISTE DES LOTS (le decoupage en paquets de ~5, donc le nombre de verificateurs lances), et pour chaque lot les pid A JUGER et les pid ACQUIS ; verifications/etape-2/registre.json — le verdict et l'empreinte de chaque unite jugee, fiche par fiche",
+          "detail": "- Toutes les sous-étapes du graphe, aucune ne se saute\n- Une sous-étape sans livrable écrit est déjà une faille\n\nLE REGISTRE DES VERDICTS — on ne rejuge jamais ce qui est deja conforme :\n- Une unite qui porte deja un verdict CONFORME est ACQUISE : cette passe ne la rejuge pas\n- SAUF SI ELLE PORTE ENCORE DES POINTS PERDUS ET QUE L'ETAPE EST SOUS SON SEUIL. Un acquis a `points` > 0 RENTRE dans le perimetre : ses points comptent contre l'etape a chaque passe, les laisser dormir rend le seuil inatteignable par arithmetique, quel que soit le travail. Il en ressort des que ses points tombent a zero, ou des que l'etape atteint son seuil\n- UN ACQUIS RAPPELE NE SE REJUGE PAS DE BOUT EN BOUT : il se relit sur la LISTE CLOSE des defauts deja consignes contre lui dans le registre, et sur rien d'autre. Aucun defaut neuf ne s'y ajoute. C'est ce qui fait converger : une seconde lecture LIBRE diverge, une lecture bornee a des defauts nommes ne peut que retrecir la liste\n- TROIS FAMILLES SEULEMENT rentrent par cette porte : precision non attestee, champs jumeaux desynchronises, ecart au profil de style. Une faute eliminatoire n'y rentre jamais — elle a refuse l'etape le jour ou elle a ete vue, elle ne dort pas dans un acquis\n- Seul le vert est acquis. Un refus repart en correction, et sa correction se rejuge\n- L'EMPREINTE NE S'ECRIT PAS A LA MAIN, ELLE SE FAIT TAMPONNER. Un element sans empreinte ne pourra JAMAIS etre reconnu comme acquis : la passe suivante le remettra au programme, en silence, comme s'il n'avait jamais ete juge. Quand tes verdicts sont poses, tamponne le registre : `python3 pipeline/empreintes-fiches.py --tamponner verifications/etape-<N>/registre.json <les sources jugees>` — il te dit combien d'empreintes il a posees et combien d'elements n'ont trouve aucune source, ce qui est une faute a corriger, pas un avertissement a ignorer\n- ET NE RECOMPTE RIEN A LA MAIN : `python3 pipeline/etat-run.py <workspace>` rend en UN appel les comptes, les champs manquants avec les id concernes, les repartitions, les longueurs en mots et le md5 de chaque livrable. `--element <id>`, `--champs a,b`, `--seulement <source>`, `--json`. Un script de comptage jetable, c'est un tour de parole par question ; cet outil repond a toutes en un seul\n- CALCULE TON PERIMETRE AVEC L'OUTIL, PAS DE TETE : `empreintes-fiches.py --diff verifications/etape-<N>/registre.json <les sources>` rend les id A JUGER — jamais vus, ou empreinte differente du registre. Ce que l'outil ne nomme pas est acquis et ne se relit pas\n- L'ACQUIS SE COMPTE AU GRAIN DE L'ELEMENT JUGE, PAS DU FICHIER QUI LE PORTE. Un element est la plus petite chose qui porte un verdict : une fiche de chasse, un essentiel, une entree de livrable. Dix elements dont trois sont refuses repartent en correction ; a la passe suivante, seuls ces trois-la se rejugent, plus tout element dont l'empreinte a bouge. Les sept autres sont acquis et ne se relisent pas, MEME SI le fichier qui les porte a ete reecrit\n- Le DISPATCH, lui, reste au grain du LOT : un verificateur par lot, jamais un par element, et jamais un par transcript — une session par element repaierait son contexte de depart a chaque fois\n- Le registre `verifications/etape-2/registre.json` porte une entree par unite jugee : id, source (le fichier ou le dossier juge), verdict (conforme|refuse), passe, et `elements` = un objet id -> { verdict, passe, empreinte }\n- L'empreinte d'un element porte sur LUI SEUL et se calcule mecaniquement, jamais a l'oeil : `python3 pipeline/empreintes-fiches.py <source>` rend id -> md5 (sections `## <id>` d'un .md, un fichier par element dans un dossier, une cle ou une ligne dans un .json/.jsonl), et `--diff <registre.json> <source>` rend directement les id a juger\n- Un CONTROLE D'ENSEMBLE reste au grain du lot — dedoublonnage, comptes, figeage, ordre, coherence entre elements : il porte sur la collection, pas sur un element, et se rejuge des qu'un element du lot a bouge\n- Le perimetre se calcule AVANT d'ouvrir un livrable, ELEMENT PAR ELEMENT : a juger = element jamais juge, refuse a la passe precedente, empreinte differente du registre, OU acquis a `points` > 0 tant que l'etape est sous son seuil ; hors perimetre = element conforme, empreinte inchangee ET points a zero. `perimetre.md` nomme, pour chaque source, les id A JUGER et les id ACQUIS\n- L'outil `--diff` ne connait que les empreintes : les acquis a points non nuls, tu les ajoutes toi-meme en lisant `points` dans le registre, et tu ecris dans `perimetre.md` pourquoi chacun revient et QUELS defaults nommes il vient corriger\n- L'empreinte fait tenir l'acquis : un livrable reecrit depuis son verdict n'est plus celui qui a ete juge — son acquis tombe et il se rejuge\n\n- Rejuger un acquis ne fiabilise rien : deux lectures fraiches du meme texte ne rendent pas le meme verdict. Sans registre, la boucle etape ↔ verification ne converge jamais\n- Le registre porte deux champs de plus, lus EN MACHINE par l'orchestrateur :\n  `refus_consecutifs` sur chaque unite refusee — combien de fois d'affilee elle a ete refusee POUR LE MEME MOTIF ; il repart a zero des qu'elle passe ou que le motif change ; le nœud tient le compteur, il ne fixe pas le seuil — c'est l'orchestrateur qui arrete la boucle et alerte quand il est atteint\n  `motif_court` — le motif de fond, formule pareil d'une passe a l'autre, sinon le compteur ne compte rien\n- L'ACQUIS SE CALCULE SUR L'UNITE, JAMAIS A L'INTERIEUR : une unite a juger se juge ENTIERE. Un lot dont l'empreinte a change se rejuge fiche par fiche, y compris les fiches qu'aucune passe n'a modifiees. Un verdict conforme porte sur ce que le juge a regarde, jamais sur ce qu'il n'a pas ouvert : le declarer acquis ligne par ligne rouvre un trou a chaque passe\n- UN ELEMENT EST UN LIVRABLE, JAMAIS UN CHAMP A L'INTERIEUR D'UN LIVRABLE. Une fiche, un essentiel, un rapport, un fichier d'etat sont des elements ; les cles d'un JSON, les sections d'un document, les lignes d'un tableau n'en sont pas — ce sont les points que la definition close deroule A L'INTERIEUR d'un element\n- EN DESSOUS D'UN LOT, PAS D'EQUIPE : si le perimetre tient en un lot (~5 livrables ou moins), il n'y a ni chef, ni dispatch, ni agregation. UN SEUL verificateur recense, juge, tamponne le registre et ecrit le rapport d'etape. Les trois sous-etapes restent, jouees par le meme agent\n- MESURE QUI MOTIVE LA REGLE : l'etape 4 rend UN SEUL fichier ; il a ete decoupe en 24 « elements » qui etaient ses champs, puis en 5 lots, donc 5 verificateurs frais repayant chacun leur contexte — 19,4 M de jetons, 23 $ et 23 minutes pour verifier qu'un email est parti\n- POUR UNE VIDEO OU UN PODCAST, LA SOURCE DE VERITE EST LE TRANSCRIPT : `veille-transcript <url>`, puis tu cherches la chaine contestee dedans. Chercher dans la page ne prouve rien\n- Si la commande rend 3 ou 4, la faute est « non verifiable », jamais GRAVE\n\nLE QUESTIONNAIRE — IL SE GENERE, IL NE S'INVENTE PAS :\n- AVANT de former les lots : `python3 pipeline/questionnaire.py extraire <workspace>/pistes-*.md > <workspace>/verifications/etape-2/questionnaire.json`\n- Ce fichier porte, pour CHAQUE fiche, la liste CLOSE des questions a lui poser. Tu ne l'ecris pas, tu ne l'allonges pas, tu ne le raccourcis pas\n- IL EST FIGE POUR TOUTE LA RUN. S'il existe deja, tu le REUTILISES tel quel — tu ne le regeneres pas, meme si des fiches ont ete reparees. Son empreinte est ecrite dans le registre : si elle a bouge, c'est une faute de la verification, pas du producteur\n- POURQUOI : quand c'est le juge qui decide combien de choses il y a a verifier, ce nombre triple d'une passe a l'autre sur le meme texte (mesure : lots de 18,0 puis 15,5 puis 51,7 Ko a consigne identique). Le score ne mesure alors plus la fiche, il mesure la profondeur de lecture du jour — et il BAISSE quand un modele plus fort prend la main\n- Une fiche ajoutee entre deux passes recoit son questionnaire propre, ajoute au fichier ; les questionnaires deja poses ne bougent pas",
+          "si_succes": "2-verification.2",
+          "si_echec": "un livrable introuvable : le nommer comme manquant dans le périmètre — on ne réduit pas le périmètre à ce qu'on trouve facilement"
+        },
+        {
+          "titre": "Fouiller chaque livrable contre sa definition et ses sources",
+          "par": "les vérificateurs",
+          "objectif": "Trouver l'écart entre ce que le livrable affirme et ce que sa définition exige ou ce que sa source porte — et rendre TOUTES les fautes de l'element en une seule passe, jamais une par passe",
+          "livrable": "verifications/etape-2/<agent>.md — ce que le livrable affirme · ce que sa definition exige ou ce que sa source porte · verdict",
+          "detail": "- UN vérificateur FRAIS par LOT DE LIVRABLES, tous en parallèle, chacun aveugle aux autres\n- UN LOT EST UN PAQUET DE LIVRABLES (~5 elements de meme nature), PAS UNE SESSION D'AGENT. Le nombre de verificateurs se calcule sur les LIVRABLES, jamais sur le nombre de transcripts que le producteur a laisses : il peut avoir decoupe son travail en trente sous-agents, ca ne fait pas trente lots. JAMAIS PLUS DE VERIFICATEURS QUE DE LOTS\n- TA SOURCE DE VERITE, ET IL N'Y EN A PAS D'AUTRE : LA PAGE que la fiche cite, telechargee\n- UNE FAUTE GRAVE SE VERIFIE CONTRE ELLE, jamais de memoire ni au jugement. Avant d'ecrire GRAVE sur un chiffre, un nom, une date, une citation ou un lien de cause : `curl -sL -A \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" <url> -o /tmp/p.html` puis `grep -o \"<chaine>\" /tmp/p.html`\n- Si la chaine y est : il n'y a PAS de faute. Si ta source de verite est injoignable par toutes les voies, la faute est « non verifiable », jamais GRAVE\n- Ce controle ne vaut que pour les GRAVES d'attestation — le reste (comptes, champs manquants, forme, coherence entre elements) se lit dans les livrables eux-memes\n- Ne rien inventer : zéro faille est un résultat valide s'il est adossé aux traces\n\nTU NE RELIS AUCUN TRANSCRIPT. Tu juges le LIVRABLE, et rien d'autre :\n- LE LIVRABLE CONTRE SA DEFINITION. Ouvre la definition close de la fiche (veille-launch-researcher, section « La fiche ») et deroule-la CHAMP PAR CHAMP, sur CHAQUE ELEMENT DE TON PERIMETRE (les id que `perimetre.md` te nomme, jamais tout le lot : les elements acquis ne se relisent pas). Un champ absent, un champ en trop, un champ qui ne contient pas ce que la definition annonce : c'est une faille. Ce volet ne se sonde pas, il s'epuise\n- Les champs adosses a une SOURCE (URL, Date du fait, Source, Sources independantes, Essentiel) se controlent tous de la meme facon : chaque nom propre, chaque chiffre, chaque qualification d'editeur doit apparaitre dans un `tool_result` d'une page REELLEMENT ouverte par ce chasseur. Zero occurrence = affirmation non attestee = faille\n\nUNE FAUTE TROUVEE PLUS TARD DANS UN ELEMENT DEJA JUGE, ET QUI REPONDAIT A UNE QUESTION DE TON QUESTIONNAIRE, EST UNE FAUTE DE LA VERIFICATION — pas du producteur.\n\nUN ELEMENT SE LIT JUSQU AU BOUT — meme deja refuse :\n- Des qu'une faute est trouvee dans un element, tu CONTINUES a repondre jusqu a la derniere question de son questionnaire. Un element refuse une fois repart en correction de toute facon: chercher la deuxieme faute ne change pas son verdict, mais l'omettre la renvoie a la passe suivante, qui coutera un tour entier pour elle seule\n- Tu releves le MAXIMUM de fautes en une passe. Une faute que tu vois et que tu ne notes pas est une faute que tu fabriques pour le tour d'apres\n- Ton rapport dit, pour chaque element juge, TOUS ses defauts — pas le premier, pas le plus grave: tous\n\nCHAQUE FAUTE PORTE UN POIDS — c'est lui qui decide si l'etape passe :\n- GRAVE (hors score, BLOQUANT) : le livrable AFFIRME ce que sa source ne soutient pas — un chiffre, un nom, une date, une attestation. Le lecteur lirait un fait faux. Une seule suffit a refuser l'etape, quel que soit le pourcentage\n- MOYEN (3 points) : le livrable est incomplet ou incoherent SANS mentir — champ absent, comptes qui ne tombent pas, doublon non vu, ordre faux, contrainte de forme franchie\n- LEGER (1 point) : forme et tracabilite — citation normalisee, en-tete perime, chemin instable, journal qui se contredit sur un nom de fichier\n- Chaque element juge vaut 10 points au depart. Tu ecris le poids de CHAQUE faute dans ton rapport, a cote de la faille\n\nCE QU'ON REGARDE À CETTE ÉTAPE :\n- une page ouverte = une page que le chasseur a TELECHARGEE et lue lui-meme (curl puis Grep/Read, ou gh api) ; ni une recherche ni un WebFetch n'ouvrent quoi que ce soit — le premier ne rend que des liens, le second le resume d'un petit modele, et un resume n'atteste aucune page — un decompte sous le plancher fait repartir le chasseur, il n'y a pas de verdict indetermine\n- Chaque règle d'axe a-t-elle été visée par une requête réelle ?\n- Chaque piste tient-elle contre ses sources, et son « et alors ? » dit-il ce qui change ?\n- Les tiers sont-elles étalées, ou tout un axe est-il rangé dans la même ?\n- LA DÉDUPLICATION : state/retenus.json porte-t-il TOUT le vivier vérifié, sans doublon ? Une piste qui manque est une faille — la chasse ne coupe pas (veille-launch-researcher, § La déduplication)\n- Chaque fusion se justifie-t-elle : les deux fiches portaient-elles le MÊME fait, et la survivante cite-t-elle l'autre dans son fusion_de ?\n- Les règles d'écartement du lecteur ont-elles été appliquées quand elles existaient — et une piste écartée à ce titre porte-t-elle la règle qui l'a sortie ?\n- Chaque doublon fondu est-il listé dans ecartees.md, avec l'entrée qui l'a absorbé ? Une piste qui disparaît sans ligne est une faille\n- L'EFFORT se juge sur TOUS les chasseurs, y compris ceux dont aucune piste n'a été retenue — une fouille bâclée ne se rachète pas en n'étant pas sélectionnée. Les FICHES, elles, ne se déroulent champ par champ que sur les retenus\n\nTU REPONDS AU QUESTIONNAIRE, TU NE CHERCHES PAS LIBREMENT :\n- Ton perimetre est la liste de questions de `verifications/etape-2/questionnaire.json` pour les elements de ton lot. Ni plus, ni moins. Tu ne rends AUCUNE faute qui ne reponde a une question de cette liste\n- Chaque question se repond `oui` | `non` | `non verifiable`. TOUTE reponse `non` porte DEUX citations : la chaine exacte de la fiche, et la chaine exacte de la page (ou la mention qu'elle en est absente). Une reponse `non` sans ses deux citations est IRRECEVABLE et ne compte pas comme faute\n- `non verifiable` (la page ne repond par aucune voie) ne compte ni en faute ni en reussite : il sort du denominateur et se consigne\n- LES QUESTIONS `mecanique: true` SE REPONDENT SANS TOI, par grep : `curl -sL -A \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" <url> -o /tmp/p.html` puis `grep -Fo \"<chaine>\" /tmp/p.html`. Presente -> `oui`, et tu passes. Ne depense un raisonnement que sur les questions `mecanique: false`\n- LA QUESTION DE TYPE `sens` N'EST PAS BLOQUANTE tant qu'elle n'a pas ete calibree : tu y reponds et tu la consignes, elle ne refuse pas l'etape a elle seule. C'est la seule question non binaire du lot\n- Le score de l'element = reponses `oui` / (total des questions de son questionnaire - les `non verifiable`). Le denominateur ne bouge plus d'une passe a l'autre : deux passes comparent enfin la meme chose",
+          "si_succes": "2-verification.3",
+          "si_echec": "une source injoignable par toutes les voies : le rapport conclut « non vérifiable » et le dit, il ne conclut jamais « conforme »"
+        },
+        {
+          "titre": "Agréger les failles en un rapport d'étape",
+          "par": "le chef de vérification",
+          "objectif": "Dire si l'étape peut alimenter la suivante, ou ce qu'il faut refaire",
+          "livrable": "verifications/etape-2.md — le verdict d'étape et la liste des failles bloquantes ; le score pondere est ecrit dans verifications/etape-<N>/registre.json",
+          "detail": "- Le rapport agrège les rapports de lot, il ne les réécrit pas\n- Une faille dit : la sous-étape, l'écart constaté, et le geste qui répare\n- POUR UN ACQUIS RAPPELE, le rapport DONNE de quoi corriger sans rouvrir le livrable : le passage fautif recopie tel quel, le defaut nomme par sa famille, et le geste attendu — recopie ou retrait. Un identifiant seul renvoie l'auteur a une fouille, et une fouille produit une reformulation, donc le refus d'apres\n- UNE PRESCRIPTION RECOPIE LA SOURCE, ELLE NE REDIGE PAS : la chaine prescrite en remplacement doit exister dans la source (phrase recopiee, chiffre lu, reserve que la source pose). Jamais reformuler, jamais calculer, jamais resumer\n- Le motif n'est pas stylistique : le juge frais suivant lira cette chaine sans savoir qu'elle vient d'une correction, ne la trouvera pas dans la source, et la refusera — reformuler, c'est fabriquer le refus de la passe d'apres\n- Quand aucune recopie ne peut reparer (la source a ete revisee, elle ne dit plus ce que le livrable affirme) : prescrire le RETRAIT de l'affirmation fautive. Retirer est toujours possible et toujours sur — un texte ampute d'une nuance reste vrai, un texte qui garde une affirmation fausse ne l'est pas. Ce n'est pas rediger : on enleve, on n'ecrit rien\n- N'ESCALADER que si le retrait lui-meme emporte le fond du finding, ou si la decision ENGAGE LE PROPRIETAIRE : le perimetre de la run, un cout, une de SES regles a changer. Choisir entre deux formulations, garder ou retirer un chiffre, arbitrer densite contre fidelite : ce sont des arbitrages editoriaux, l'orchestrateur les tranche — ils n'arretent pas une run\n- `escalade` = {unite, question en une phrase, options telles quelles, sans en recommander une}. C'est ce champ, et lui seul, qui sort de la pipeline : une escalade ecrite seulement en prose ne sort jamais\n\nLE VERDICT D ETAPE EST UN SCORE, PAS UN OUI/NON :\n- LE SCORE PORTE SUR TOUS LES ELEMENTS DE L'ETAPE, JAMAIS SUR LE SEUL LOT REJUGE. Un element acquis garde les points qu'il a perdus le jour ou il a ete juge, et ces points restent au numerateur comme au denominateur\n- Poids total = 10 x TOUS les elements de l'etape (les acquis compris)\n- Poids perdu = la somme des points de CHAQUE element : ceux que tu viens de juger, plus ceux que les acquis reportent tels quels depuis le registre\n- Score = 100 x (1 - poids perdu / poids total), arrondi a l'entier\n- SANS CETTE REGLE LE SEUIL SE DURCIT A MESURE QUE LE TRAVAIL AVANCE : le vivier juge retrecit d'une passe a l'autre, donc le meme defaut coute de plus en plus cher. Trois elements restants pesent 30 points, ou 95 % n'autorise plus que 1,5 point de perte — un seul ecart de forme pour les trois reunis, au moment precis ou il reste le moins a corriger. L'etape devenait inatteignable par arithmetique, pas par qualite\n- CHAQUE ELEMENT PORTE SES POINTS DANS LE REGISTRE, poses par la passe qui l'a juge et recopies tels quels par les suivantes : `elements`: { `<id>`: { `verdict`, `passe`, `points`, `empreinte` } }. Un element sans `points` ne peut plus etre reporte et son acquis retombe, en silence\n- Ecris ce bloc dans `verifications/etape-<N>/registre.json`, a la racine : `score`: { `poids_total`, `poids_perdu`, `pourcentage`, `elements_total`, `elements_juges`, `fautes_graves` (le nombre), `defauts_restants` (le nombre) }\n- Le rapport porte le score en tete, avec le compte des fautes par poids\n- TU NE DECIDES PAS si l'etape passe : tu calcules et tu ecris. Le seuil vit dans l'orchestrateur, qui compare et tranche — un seuil recopie dans un rapport devient une deuxieme verite qui divergera",
+          "si_succes": "étape 3 — monter la constellation",
+          "si_echec": "une faille bloquante : retour à l'étape 2 avec la liste, puis re-vérification"
+        }
+      ],
+      "verification": true,
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur les fiches de chasse, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (source injoignable par toutes les voies)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "monter",
+      "n": 3,
+      "type": "agent",
+      "name": "Monter la constellation",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-2/",
+        "verifications/etape-2.md",
+        "verifications/etape-2/questionnaire.json"
+      ],
+      "objectif": "Grouper les findings apparentés en HISTOIRES, faire écrire l'essentiel BILINGUE de chaque histoire depuis ses sources, assembler le bundle. Cette étape RÉDIGE et MONTE — elle ne juge pas : les tiers sont posées à l'étape 2, par les agents qui avaient les sources ouvertes et le contexte des préférences.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-assemble-niveau1",
+        "veille-agent-synthetiseur",
+        "veille-style"
+      ],
+      "tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "TodoWrite",
+        "Task"
+      ],
+      "taches": [
+        "Reprendre le vivier dans findings.json",
+        "Grouper les findings apparentés en histoires",
+        "Faire écrire l'essentiel de chaque histoire",
+        "Construire et déployer la constellation d'évaluation"
+      ],
+      "livrables": [
+        "findings.json",
+        "state/groupes.json",
+        "constellation-bundle/constellation-data.json"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "verif-essentiels"
+      ],
+      "agents": [
+        {
+          "role": "Le monteur",
+          "outils": [
+            "lecture du vivier complet — Read",
+            "groupage par parenté + assemblage du bundle niveau 1 — Write",
+            "lancer les synthétiseurs d'histoire par vagues de ~5 — dispatch",
+            "build_constellation.py — Bash",
+            "SSH vers le serveur du site pour déployer sous /c/<run>-eval/ — Bash (ssh)"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-assemble-niveau1",
+              "role": "le protocole : reprendre le vivier + grouper les findings apparentés en histoires + faire écrire l'essentiel de chaque histoire + assembler le bundle niveau 1 en REPORTANT la tier posée à l'étape 2"
+            },
+            {
+              "nom": "veille-style",
+              "role": "le style d'ecriture unique — les huit gestes et l'exemple de reference"
+            }
+          ],
+          "contexte": "~120k"
+        },
+        {
+          "role": "Le synthétiseur (histoire)",
+          "outils": [
+            "lecture de la référence de rédaction (veille-style/reference-redaction.md) — Read",
+            "lire les FICHES de chaque finding du groupe dans state/retenus.json — Read",
+            "lecture des captures des findings — Read",
+            "écriture de l'essentiel de l'histoire — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-agent-synthetiseur",
+              "role": "le synthétiseur — MODE ESSENTIEL : écrit UN essentiel par histoire depuis LES FICHES de ses findings, au niveau de la référence de rédaction lue avant d'écrire ; juge de ce qui fait histoire"
+            }
+          ],
+          "contexte": "~60k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Reprendre le vivier dans findings.json",
+          "par": "le monteur",
+          "objectif": "Poser le vivier dédupliqué de l'étape 2 dans le fichier que le montage remplit",
+          "livrable": "findings.json — un finding par entrée de state/retenus.json, tier et fusion_de recopiées à l'identique",
+          "detail": "- Recopie, pas jugement : la déduplication a eu lieu en fin d'étape 2\n- Le montage ne rajoute aucun finding et n'en retire aucun — un écart entre state/retenus.json et findings.json se signale, il ne se rafistole pas\n- La tier arrive de l'étape 2 et se recopie à l'identique : le montage ne reclasse pas",
+          "si_succes": "3.2",
+          "si_echec": "un finding manque à l'appel : le signaler dans le rapport, ne pas le repêcher depuis passants-raw.jsonl"
+        },
+        {
+          "titre": "Grouper les findings apparentés en histoires",
+          "par": "le monteur",
+          "objectif": "Que le lecteur lise des histoires cohérentes au lieu d'une file de faits isolés",
+          "livrable": "state/groupes.json — un groupe par histoire candidate : identifiant, axe, liste des findings, l'hypothèse proposée en une phrase, et après écriture le verdict du synthétiseur (tenue / corrigée / abandonnée) avec les findings qu'il a écartés",
+          "detail": "- Un groupe = 2 à 5 findings d'un même axe qui racontent la même chose ; un finding qui ne se rattache à rien fait un groupe d'un seul\n- La parenté se mesure sur le vocabulaire rare partagé : des termes présents nulle part ailleurs dans la run\n- Le groupe porte une HYPOTHÈSE : une phrase déclarative disant ce que ces faits racontent ensemble\n- C'est une PROPOSITION, pas un verdict — le synthétiseur, fiches en main, la tient, la corrige ou l'abandonne, et tu reportes sa réponse dans state/groupes.json\n- Un groupe = un agent = un transcript : c'est ce qui rend la vérification des traces tenable",
+          "si_succes": "3.3",
+          "si_echec": "aucune parenté trouvée : monter chaque finding en groupe d'un seul — un groupe forcé produit une histoire fausse"
+        },
+        {
+          "titre": "Faire écrire l'essentiel de chaque histoire",
+          "par": "le monteur → les synthétiseurs",
+          "objectif": "Que chaque histoire soit racontée au niveau de la référence de rédaction",
+          "livrable": "findings.json — un objet par histoire : titre_fr/titre_en, essentiel_fr/essentiel_en, sources[] (une entrée par finding : titre, url, date, chasseur), tier",
+          "detail": "- Un synthétiseur par GROUPE — jamais un agent par finding\n- Il écrit UN texte qui relie les faits de son groupe, DEPUIS LES FICHES de chacun — il n'ouvre AUCUNE page. Les fiches ont ete attestees a l'etape 2 : elles sont la TOTALITE de ce dont il dispose, et ce qui n'y est pas n'existe pas pour son texte\n- La MÉTHODE est imposée, pas seulement le résultat : hypothèse écrite avant d'ouvrir les fiches, puis testée finding par finding (veille-agent-synthetiseur § Composer une histoire)\n- Il est juge de ce qui fait histoire : un finding qui ne soutient pas l'hypothèse, il l'écarte et le signale — le monteur le remonte en histoire à part\n- Le test qui tranche : quelle CAUSE COMMUNE produit ces faits ? Elle s'écrit en une phrase ou il n'y a pas d'histoire — se ressembler n'est pas un lien\n- Ne jamais forcer un lien que les fiches ne portent pas : deux faits côte à côte ne font pas une suite\n- La tier de l'histoire est la PLUS HAUTE de ses findings — mécanique, sans jugement\n- BILINGUE obligatoire : titre ET essentiel dans les deux langues — la constellation a une bascule FR/EN qui traduit le contenu, un objet monolingue y affiche du vide\n- La traduction est de qualité éditoriale, pas mot-à-mot",
+          "si_succes": "3.4",
+          "si_echec": "un groupe rendu en plusieurs textes : le monteur les pose en histoires distinctes, il ne les recolle pas"
+        },
+        {
+          "titre": "Construire et déployer la constellation d'évaluation",
+          "par": "le monteur",
+          "objectif": "Que la page d'evaluation existe et reponde, avec tous les findings dedans",
+          "livrable": "constellation-bundle/constellation-data.json — un signal par finding : titre et essentiel (FR+EN), axe, source, tier",
+          "detail": "- UNE commande fait tout : deployer-eval.sh <workspace> (dans viewer/)\n- Elle construit le JSON depuis findings.json, pose le livrable, deploie sous /c/<run>-eval/ et controle en HTTP\n- Ne pas refaire ces gestes a la main : le script sauvegarde l'existant et compare le md5 servi au livrable\n- La page HTML et ses assets ne se reconstruisent pas — le template racine est copie au premier deploiement\n- Deployer ne previent pas : le lecteur n'est invite qu'apres le feu vert de la verification",
+          "si_succes": "fin d'étape",
+          "si_echec": "le script sort en code non nul : lire son RESUME — un md5 different ou un 404 se corrige avant d'aller plus loin"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "montage: findings du vivier → histoires groupees → essentiels ecrits",
+          "tiers: tiers reportees de l'etape 2 (aucune reclassee)",
+          "constellation: URL de la constellation deployee, et son code HTTP"
+        ],
+        "a_dire": [
+          "COMMENT TU AS GROUPE : le critere qui a fait les histoires, et les findings que tu as laisses seuls",
+          "CE QUE LE LECTEUR VERRA EN PREMIER sur sa constellation",
+          "LES ESSENTIELS QUI T'ONT RESISTE, et pourquoi"
+        ]
+      },
+      "gate": {
+        "apres_accents": "viewer/deployer-eval.sh"
+      }
+    },
+    {
+      "id": "verif-essentiels",
+      "n": 3,
+      "type": "fanout",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "findings.json",
+        "state/groupes.json",
+        "constellation-bundle/constellation-data.json"
+      ],
+      "objectif": "Fouiller au peigne fin les livrables de l'étape — contre leur définition close, et contre les sources qu'ils citent — et relever les failles. UN vérificateur FRAIS par LOT de livrables, tous en parallèle, aucun n'ayant participé au travail qu'il juge.",
+      "taches": [
+        "Recenser les livrables de chaque sous-étape et former les lots",
+        "Fouiller chaque livrable contre sa definition et ses sources",
+        "Agréger les failles en un rapport d'étape"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Recenser les livrables de chaque sous-étape et former les lots",
+          "par": "le chef de vérification",
+          "objectif": "Fixer le périmètre AVANT de juger, pour que personne ne choisisse ce qu'il regarde, et EXCLURE du perimetre ce qui porte deja un verdict conforme a empreinte inchangee",
+          "livrable": "verifications/etape-3/perimetre.md — une ligne par sous-étape avec son livrable, et LA LISTE DES LOTS : comment tu découpes les livrables en paquets de ~5 de même nature, et donc combien de vérificateurs tu lances ; verifications/etape-3/registre.json (les id A JUGER et ACQUIS y sont nommes source par source) — le verdict et l'empreinte de chaque unite jugee",
+          "detail": "- Toutes les sous-étapes du graphe, aucune ne se saute\n- Une sous-étape sans livrable écrit est déjà une faille\n\nLE REGISTRE DES VERDICTS — on ne rejuge jamais ce qui est deja conforme :\n- Une unite qui porte deja un verdict CONFORME est ACQUISE : cette passe ne la rejuge pas\n- SAUF SI ELLE PORTE ENCORE DES POINTS PERDUS ET QUE L'ETAPE EST SOUS SON SEUIL. Un acquis a `points` > 0 RENTRE dans le perimetre : ses points comptent contre l'etape a chaque passe, les laisser dormir rend le seuil inatteignable par arithmetique, quel que soit le travail. Il en ressort des que ses points tombent a zero, ou des que l'etape atteint son seuil\n- UN ACQUIS RAPPELE NE SE REJUGE PAS DE BOUT EN BOUT : il se relit sur la LISTE CLOSE des defauts deja consignes contre lui dans le registre, et sur rien d'autre. Aucun defaut neuf ne s'y ajoute. C'est ce qui fait converger : une seconde lecture LIBRE diverge, une lecture bornee a des defauts nommes ne peut que retrecir la liste\n- TROIS FAMILLES SEULEMENT rentrent par cette porte : precision non attestee, champs jumeaux desynchronises, ecart au profil de style. Une faute eliminatoire n'y rentre jamais — elle a refuse l'etape le jour ou elle a ete vue, elle ne dort pas dans un acquis\n- Seul le vert est acquis. Un refus repart en correction, et sa correction se rejuge\n- L'EMPREINTE NE S'ECRIT PAS A LA MAIN, ELLE SE FAIT TAMPONNER. Un element sans empreinte ne pourra JAMAIS etre reconnu comme acquis : la passe suivante le remettra au programme, en silence, comme s'il n'avait jamais ete juge. Quand tes verdicts sont poses, tamponne le registre : `python3 pipeline/empreintes-fiches.py --tamponner verifications/etape-<N>/registre.json <les sources jugees>` — il te dit combien d'empreintes il a posees et combien d'elements n'ont trouve aucune source, ce qui est une faute a corriger, pas un avertissement a ignorer\n- ET NE RECOMPTE RIEN A LA MAIN : `python3 pipeline/etat-run.py <workspace>` rend en UN appel les comptes, les champs manquants avec les id concernes, les repartitions, les longueurs en mots et le md5 de chaque livrable. `--element <id>`, `--champs a,b`, `--seulement <source>`, `--json`. Un script de comptage jetable, c'est un tour de parole par question ; cet outil repond a toutes en un seul\n- CALCULE TON PERIMETRE AVEC L'OUTIL, PAS DE TETE : `empreintes-fiches.py --diff verifications/etape-<N>/registre.json <les sources>` rend les id A JUGER — jamais vus, ou empreinte differente du registre. Ce que l'outil ne nomme pas est acquis et ne se relit pas\n- L'ACQUIS SE COMPTE AU GRAIN DE L'ELEMENT JUGE, PAS DU FICHIER QUI LE PORTE. Un element est la plus petite chose qui porte un verdict : une fiche de chasse, un essentiel, une entree de livrable. Dix elements dont trois sont refuses repartent en correction ; a la passe suivante, seuls ces trois-la se rejugent, plus tout element dont l'empreinte a bouge. Les sept autres sont acquis et ne se relisent pas, MEME SI le fichier qui les porte a ete reecrit\n- Le DISPATCH, lui, reste au grain du LOT : un verificateur par lot, jamais un par element, et jamais un par transcript — une session par element repaierait son contexte de depart a chaque fois\n- Le registre `verifications/etape-3/registre.json` porte une entree par unite jugee : id, source (le fichier ou le dossier juge), verdict (conforme|refuse), passe, et `elements` = un objet id -> { verdict, passe, empreinte }\n- L'empreinte d'un element porte sur LUI SEUL et se calcule mecaniquement, jamais a l'oeil : `python3 pipeline/empreintes-fiches.py <source>` rend id -> md5 (sections `## <id>` d'un .md, un fichier par element dans un dossier, une cle ou une ligne dans un .json/.jsonl), et `--diff <registre.json> <source>` rend directement les id a juger\n- Un CONTROLE D'ENSEMBLE reste au grain du lot — dedoublonnage, comptes, figeage, ordre, coherence entre elements : il porte sur la collection, pas sur un element, et se rejuge des qu'un element du lot a bouge\n- L'empreinte fait tenir l'acquis : un livrable reecrit depuis son verdict n'est plus celui qui a ete juge — son acquis tombe et il se rejuge\n- Le perimetre se calcule AVANT d'ouvrir un livrable, ELEMENT PAR ELEMENT : a juger = element jamais juge, refuse a la passe precedente, empreinte differente du registre, OU acquis a `points` > 0 tant que l'etape est sous son seuil ; hors perimetre = element conforme, empreinte inchangee ET points a zero. `perimetre.md` nomme, pour chaque source, les id A JUGER et les id ACQUIS\n- L'outil `--diff` ne connait que les empreintes : les acquis a points non nuls, tu les ajoutes toi-meme en lisant `points` dans le registre, et tu ecris dans `perimetre.md` pourquoi chacun revient et QUELS defaults nommes il vient corriger\n- Rejuger un acquis ne fiabilise rien : deux lectures fraiches du meme texte ne rendent pas le meme verdict. Sans registre, la boucle etape ↔ verification ne converge jamais\n- Le registre porte deux champs de plus, lus EN MACHINE par l'orchestrateur :\n  `refus_consecutifs` sur chaque unite refusee — combien de fois d'affilee elle a ete refusee POUR LE MEME MOTIF ; il repart a zero des qu'elle passe ou que le motif change ; le nœud tient le compteur, il ne fixe pas le seuil — c'est l'orchestrateur qui arrete la boucle et alerte quand il est atteint\n  `motif_court` — le motif de fond, formule pareil d'une passe a l'autre, sinon le compteur ne compte rien\n- UN ELEMENT EST UN LIVRABLE, JAMAIS UN CHAMP A L'INTERIEUR D'UN LIVRABLE. Une fiche, un essentiel, un rapport, un fichier d'etat sont des elements ; les cles d'un JSON, les sections d'un document, les lignes d'un tableau n'en sont pas — ce sont les points que la definition close deroule A L'INTERIEUR d'un element\n- EN DESSOUS D'UN LOT, PAS D'EQUIPE : si le perimetre tient en un lot (~5 livrables ou moins), il n'y a ni chef, ni dispatch, ni agregation. UN SEUL verificateur recense, juge, tamponne le registre et ecrit le rapport d'etape. Les trois sous-etapes restent, jouees par le meme agent\n- MESURE QUI MOTIVE LA REGLE : l'etape 4 rend UN SEUL fichier ; il a ete decoupe en 24 « elements » qui etaient ses champs, puis en 5 lots, donc 5 verificateurs frais repayant chacun leur contexte — 19,4 M de jetons, 23 $ et 23 minutes pour verifier qu'un email est parti",
+          "si_succes": "3-verification.2",
+          "si_echec": "un livrable introuvable : le nommer comme manquant dans le périmètre — on ne réduit pas le périmètre à ce qu'on trouve facilement"
+        },
+        {
+          "titre": "Fouiller chaque livrable contre sa definition et ses sources",
+          "par": "les vérificateurs",
+          "objectif": "Trouver l'écart entre ce que le livrable affirme et ce que sa définition exige ou ce que sa source porte — et rendre TOUTES les fautes de l'element en une seule passe, jamais une par passe",
+          "livrable": "verifications/etape-3/<agent>.md — ce que le livrable affirme · ce que sa definition exige ou ce que sa source porte · verdict ; et UNE fiche par essentiel dans verifications-carte/ portant les trois grilles et le verdict unique",
+          "detail": "- UN vérificateur FRAIS par LOT DE LIVRABLES, tous en parallèle, chacun aveugle aux autres\n- UN LOT EST UN PAQUET DE LIVRABLES (~5 elements de meme nature), PAS UNE SESSION D'AGENT. Le nombre de verificateurs se calcule sur les LIVRABLES, jamais sur le nombre de transcripts que le producteur a laisses : il peut avoir decoupe son travail en trente sous-agents, ca ne fait pas trente lots. JAMAIS PLUS DE VERIFICATEURS QUE DE LOTS\n- TA SOURCE DE VERITE, ET IL N'Y EN A PAS D'AUTRE : LES FICHES que l'essentiel assemble (`state/retenus.json`, les id que son groupe nomme) — PAS les pages. L'etape 2 les a deja attestees contre leurs pages : les rouvrir ici, c'est payer deux fois le meme controle. Ce que tu cherches est ce que le REDACTEUR A AJOUTE en assemblant : un lien qu'aucune fiche ne fait, un « annonce » durci en « accompli », une precision qui n'est dans aucune fiche, un absolu (« la seule », « jamais ») qu'aucune ne pose\n- UNE FAUTE GRAVE SE VERIFIE CONTRE ELLE, jamais de memoire ni au jugement. Avant d'ecrire GRAVE sur un chiffre, un nom, une date, une citation ou un lien de cause : `grep` la chaine contestee dans les fiches du groupe\n- Si la chaine y est : il n'y a PAS de faute. Si ta source de verite est injoignable par toutes les voies, la faute est « non verifiable », jamais GRAVE\n- Ce controle ne vaut que pour les GRAVES d'attestation — le reste (comptes, champs manquants, forme, coherence entre elements) se lit dans les livrables eux-memes\n- Ne rien inventer : zéro faille est un résultat valide s'il est adossé aux traces\n\nLE VÉRIFICATEUR DU LOT EST LE JUGE DE SES ESSENTIELS — un seul agent par lot, qui juge les ~5 essentiels du lot, et tranche les trois questions lui-même → une fiche verifications-carte/<fid>.json par essentiel\n- La VÉRITÉ (`veille-verif-carte`) : l'essentiel contre LES FICHES qu'il assemble. Une affirmation qu'aucune fiche du groupe ne porte est une invention du rédacteur, quelle que soit sa plausibilité — et c'est tout ce que cette étape a à juger sur le fond\n- La CLARTÉ : le texte se comprend-il SANS ses sources ? Il le reformule de mémoire ; ce qu'il n'arrive pas à redire n'est pas passé. Pas de plafond de notions — un sujet dense a le droit d'être dense\n- L'ÉCRITURE (`veille-verif-style`) : tu MESURES l'essentiel avec `veille-style/outils/profil-style.py` et tu compares au profil GELE de `veille-style/profil-mesure.md`. Un ecart est un trait hors tolerance, avec son chiffre — jamais une impression. Tu ne recalcules pas le profil de la reference\n- UN SEUL VERDICT, et c'est LUI qui arbitre quand les trois se tirent dessus : la phrase que la source impose peut alourdir la lecture, à lui de peser. La FIDÉLITÉ l'emporte quand il n'arrive pas à trancher — un texte dense reste vrai, un texte allégé de ce que sa source établit devient faux\n- Trois juges séparés ne peuvent pas s'arbitrer : chacun applique sa règle sans voir ce que l'autre exige, et le conflit remonte au propriétaire au lieu de se régler à la lecture\n- Aucun juge ne réécrit : un refus renvoie au montage avec son motif\n\nAVANT DE JUGER, ENUMERE — c'est ce qui fait rendre TOUTES les fautes d'un coup, et non une par passe :\n- Ecris d'abord, pour CHAQUE element de ton perimetre, la LISTE CLOSE de ce qui est verifiable en lui. Definition close disponible (fiche, JSON, rapport a sections) : ce sont ses champs. Document en PROSE (note, journal, verdict) : ce sont TOUTES ses affirmations verifiables — chaque fait, chaque attestation (« X le confirme », « les deux sources disent », « reproduit a l'identique »), chaque chiffre, chaque citation, chaque nom propre\n- Puis rends un verdict sur CHAQUE LIGNE de ta liste, conforme comprise, avec sa trace. Un rapport qui ne montre que les fautes n'a pas montre sa couverture : il est INVALIDE\n- Une faute trouvee a la passe suivante DANS UN ELEMENT DEJA JUGE et absente de ta liste est une faute de la verification, pas du producteur — c'est ce qui fait tourner la boucle a une faute par passe\n- L'enumeration se fait AVANT d'ouvrir le livrable : autrement tu listes ce que tu viens de trouver, pas ce qu'il fallait regarder\n\nUN ELEMENT SE LIT JUSQU AU BOUT — meme deja refuse :\n- Des qu'une faute est trouvee dans un element, tu CONTINUES a le derouler jusqu au dernier point de ta liste. Un element refuse une fois repart en correction de toute facon: chercher la deuxieme faute ne change pas son verdict, mais l'omettre la renvoie a la passe suivante, qui coutera un tour entier pour elle seule\n- Tu releves le MAXIMUM de fautes en une passe. Une faute que tu vois et que tu ne notes pas est une faute que tu fabriques pour le tour d'apres\n- Ton rapport dit, pour chaque element juge, TOUS ses defauts — pas le premier, pas le plus grave: tous\n\nCHAQUE FAUTE PORTE UN POIDS — c'est lui qui decide si l'etape passe :\n- GRAVE (hors score, BLOQUANT) : le livrable AFFIRME ce que sa source ne soutient pas — un chiffre, un nom, une date, une attestation. Le lecteur lirait un fait faux. Une seule suffit a refuser l'etape, quel que soit le pourcentage\n- MOYEN (3 points) : le livrable est incomplet ou incoherent SANS mentir — champ absent, comptes qui ne tombent pas, doublon non vu, ordre faux, contrainte de forme franchie\n- LEGER (1 point) : forme et tracabilite — citation normalisee, en-tete perime, chemin instable, journal qui se contredit sur un nom de fichier\n- Chaque element juge vaut 10 points au depart. Tu ecris le poids de CHAQUE faute dans ton rapport, a cote de la faille\n\nCE QU'ON REGARDE À CETTE ÉTAPE :\n- Chaque essentiel reste-t-il DANS ce que portent les fiches de son histoire ? Un chiffre, une date, un nom, une qualification qui n'est dans aucune fiche du groupe est ajouté par le rédacteur\n- La référence de rédaction est-elle partie EN ENTIER dans chaque dispatch, dans la bonne langue ?\n- Chaque objet porte-t-il ses deux langues ?\n- LE GROUPAGE : state/groupes.json couvre-t-il chaque finding de findings.json une fois et une seule ? Un finding perdu entre le vivier et les groupes est une faille\n- LE LIEN : ce qui rapproche les faits d'une histoire se lit-il dans les fiches, ou a-t-il été déduit ? Un rapprochement qu'aucune fiche ne porte est une invention, même quand chaque fait est exact — c'est le défaut le plus probable ici\n- LA MÉTHODE, telle que le livrable la déclare : l'hypothèse est-elle posée AVANT l'ouverture des sources, et chaque finding confronté à elle ? Un essentiel rédigé d'un trait sans cette confrontation est une faille de méthode, même si le texte paraît bon\n- LA CAUSE COMMUNE est-elle nommée, ou le texte se contente-t-il d'aligner les faits ? Un enchaînement « d'abord, ensuite, enfin » sans cause nommée est une liste déguisée en histoire\n- L'OUVERTURE porte-t-elle le lien, ou le premier fait venu ? Une histoire qui s'ouvre sur un fait isolé oblige le lecteur à trouver seul pourquoi les autres sont là\n- Un finding écarté d'un groupe par son synthétiseur a-t-il bien été remonté en objet à part, et non perdu ?\n- La tier de chaque histoire est-elle la PLUS HAUTE de ses findings ? Toute autre valeur est un reclassement, donc une faille — le montage ne juge pas\n- Le tableau `sources` est-il rempli sur CHAQUE objet, y compris ceux à un seul finding ?\n- L'essentiel est-il fidèle à ses fiches, compréhensible sans elles, et écrit au niveau de la référence ?\n\nLA GRILLE EST FERMEE — SIX FAUTES, ET RIEN D'AUTRE (table complete : `veille-verif-carte`)\n- Une seule question separe l'eliminatoire du pondere : peux-tu exhiber, dans une fiche du groupe, une chaine qui CONTREDIT le texte ?\n- ELIMINATOIRES — F1 le texte contredit une fiche (tu produis les deux chaines) · F2 le texte affirme un lien, un compte ou une conclusion qu'aucune fiche du groupe ne porte · F3 le texte s'adosse a une source absente de sources[]\n- PONDEREES — F4 precision non attestee mais non contredite (3 pts) · F5 champs jumeaux desynchronises, essentiel/_fr/_en et titre (3 pts) · F6 ecart au profil de style (1 pt)\n- TU NE CHOISIS PLUS LE POIDS : la table le donne. Sans la chaine contradictoire, une faute que tu croyais F1 est au mieux une F4, et une F4 ne bloque pas\n- UN DEFAUT QUI N'ENTRE DANS AUCUN DES SIX CODES N'EST PAS UNE FAUTE : tu ne le signales pas, tu ne le comptes pas, tu ne le mentionnes pas en marge. Sans liste fermee, chaque juge frais invente une categorie que le precedent n'avait pas, et la correction ne rattrape jamais le jugement\n- F2 SE REPARE PAR LE RETRAIT : on enleve la phrase qui rapproche, les faits restent. Un lien reformule reste un lien invente\n- DEUX MOTIFS NE SONT PLUS RECEVABLES, la mesure les a dementis : il n'existe aucun plafond de longueur de phrase (la reference monte a 51 mots), et l'antithese a negation « X, pas Y » n'est pas interdite (la reference l'emploie une fois) — au plus une par texte",
+          "si_succes": "3-verification.3",
+          "si_echec": "une source injoignable par toutes les voies : le rapport conclut « non vérifiable » et le dit, il ne conclut jamais « conforme »"
+        },
+        {
+          "titre": "Agréger les failles en un rapport d'étape",
+          "par": "le chef de vérification",
+          "objectif": "Dire si l'étape peut alimenter la suivante, ou ce qu'il faut refaire",
+          "livrable": "verifications/etape-3.md — le verdict d'étape et la liste des failles bloquantes ; le score pondere est ecrit dans verifications/etape-<N>/registre.json",
+          "detail": "- Le rapport agrège les rapports de lot, il ne les réécrit pas\n- Une faille dit : la sous-étape, l'écart constaté, et le geste qui répare\n- POUR UN ACQUIS RAPPELE, le rapport DONNE de quoi corriger sans rouvrir le livrable : le passage fautif recopie tel quel, le defaut nomme par sa famille, et le geste attendu — recopie ou retrait. Un identifiant seul renvoie l'auteur a une fouille, et une fouille produit une reformulation, donc le refus d'apres\n- UNE PRESCRIPTION RECOPIE LA SOURCE, ELLE NE REDIGE PAS : la chaine prescrite en remplacement doit exister dans la source (phrase recopiee, chiffre lu, reserve que la source pose). Jamais reformuler, jamais calculer, jamais resumer\n- Le motif n'est pas stylistique : le juge frais suivant lira cette chaine sans savoir qu'elle vient d'une correction, ne la trouvera pas dans la source, et la refusera — reformuler, c'est fabriquer le refus de la passe d'apres\n- Quand aucune recopie ne peut reparer (la source a ete revisee, elle ne dit plus ce que le livrable affirme) : prescrire le RETRAIT de l'affirmation fautive. Retirer est toujours possible et toujours sur — un texte ampute d'une nuance reste vrai, un texte qui garde une affirmation fausse ne l'est pas. Ce n'est pas rediger : on enleve, on n'ecrit rien\n- N'ESCALADER que si le retrait lui-meme emporte le fond du finding, ou si la decision ENGAGE LE PROPRIETAIRE : le perimetre de la run, un cout, une de SES regles a changer. Choisir entre deux formulations, garder ou retirer un chiffre, arbitrer densite contre fidelite : ce sont des arbitrages editoriaux, l'orchestrateur les tranche — ils n'arretent pas une run\n- `escalade` = {unite, question en une phrase, options telles quelles, sans en recommander une}. C'est ce champ, et lui seul, qui sort de la pipeline : une escalade ecrite seulement en prose ne sort jamais\n\nLE VERDICT D ETAPE EST UN SCORE, PAS UN OUI/NON :\n- LE SCORE PORTE SUR TOUS LES ELEMENTS DE L'ETAPE, JAMAIS SUR LE SEUL LOT REJUGE. Un element acquis garde les points qu'il a perdus le jour ou il a ete juge, et ces points restent au numerateur comme au denominateur\n- Poids total = 10 x TOUS les elements de l'etape (les acquis compris)\n- Poids perdu = la somme des points de CHAQUE element : ceux que tu viens de juger, plus ceux que les acquis reportent tels quels depuis le registre\n- Score = 100 x (1 - poids perdu / poids total), arrondi a l'entier\n- SANS CETTE REGLE LE SEUIL SE DURCIT A MESURE QUE LE TRAVAIL AVANCE : le vivier juge retrecit d'une passe a l'autre, donc le meme defaut coute de plus en plus cher. Trois elements restants pesent 30 points, ou 95 % n'autorise plus que 1,5 point de perte — un seul ecart de forme pour les trois reunis, au moment precis ou il reste le moins a corriger. L'etape devenait inatteignable par arithmetique, pas par qualite\n- CHAQUE ELEMENT PORTE SES POINTS DANS LE REGISTRE, poses par la passe qui l'a juge et recopies tels quels par les suivantes : `elements`: { `<id>`: { `verdict`, `passe`, `points`, `empreinte` } }. Un element sans `points` ne peut plus etre reporte et son acquis retombe, en silence\n- Ecris ce bloc dans `verifications/etape-<N>/registre.json`, a la racine : `score`: { `poids_total`, `poids_perdu`, `pourcentage`, `elements_total`, `elements_juges`, `fautes_graves` (le nombre), `defauts_restants` (le nombre) }\n- Le rapport porte le score en tete, avec le compte des fautes par poids\n- TU NE DECIDES PAS si l'etape passe : tu calcules et tu ecris. Le seuil vit dans l'orchestrateur, qui compare et tranche — un seuil recopie dans un rapport devient une deuxieme verite qui divergera",
+          "si_succes": "étape 4 — prévenir le lecteur",
+          "si_echec": "une faille bloquante : retour à l'étape 3 avec la liste, puis re-vérification"
+        }
+      ],
+      "agents": [
+        {
+          "role": "Le chef de vérification",
+          "outils": [
+            "recensement des livrables — Read",
+            "dispatch — dispatch",
+            "agrégation — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "recense les LOTS de livrables, dispatche un verificateur par lot, agrege les failles — et s'il n'y a qu'un seul lot il ne dispatche personne : il juge lui-meme, ecrit le rapport d'etape, et le role du verificateur ne s'instancie pas"
+            }
+          ],
+          "contexte": "~60k"
+        },
+        {
+          "role": "Le vérificateur",
+          "outils": [
+            "lecture des livrables de son lot — Read",
+            "lecture de ses livrables — Read",
+            "ouverture des sources si besoin — WebFetch",
+            "écriture du rapport — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "fouille les livrables d'UN LOT contre leur definition close et les sources qu'ils citent"
+            },
+            {
+              "nom": "veille-verif-carte",
+              "role": "la grille de la vérité : l'essentiel contre les sources que le synthétiseur a ouvertes"
+            },
+            {
+              "nom": "veille-verif-style",
+              "role": "la grille de l'écriture : l'essentiel contre la référence de rédaction, dans sa langue"
+            }
+          ],
+          "contexte": "~80k"
+        }
+      ],
+      "livrables": [
+        "verifications/etape-3/",
+        "verifications/etape-3.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "prevenir"
+      ],
+      "consignes": [
+        "veille-verif-etape",
+        "veille-verif-carte",
+        "veille-verif-style"
+      ],
+      "verification": true,
+      "tools": [
+        "Read",
+        "Write",
+        "WebFetch",
+        "Bash",
+        "TodoWrite"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur les essentiels, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (source injoignable, ou juge de carte mort)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "prevenir",
+      "n": 4,
+      "type": "agent",
+      "name": "Prévenir le lecteur",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-3/",
+        "verifications/etape-3.md"
+      ],
+      "objectif": "Inviter le lecteur sur sa constellation — et seulement une fois que la vérification l'a laissée passer. Un lecteur prévenu trop tôt note un travail refusé.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-publish"
+      ],
+      "tools": [
+        "Bash",
+        "Read",
+        "Write"
+      ],
+      "taches": [
+        "Envoyer l'invitation au lecteur"
+      ],
+      "livrables": [
+        "state/notification-envoyee.json"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "verif-notification"
+      ],
+      "agents": [
+        {
+          "role": "Le messager",
+          "outils": [
+            "appel de l'API de notification — Bash (curl)",
+            "lecture du profil du lecteur — Read",
+            "trace de l'envoi — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-publish",
+              "role": "où trouver l'adresse du lecteur et l'URL de sa run"
+            }
+          ],
+          "contexte": "~20k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Envoyer l'invitation au lecteur",
+          "par": "le messager",
+          "objectif": "Que le lecteur sache que sa veille l'attend, et où",
+          "livrable": "state/notification-envoyee.json — le destinataire, l'URL envoyée, l'horodatage, le code de retour",
+          "detail": "- `sudo -n /usr/local/bin/flux-inviter --workspace <workspace>`\n- Le destinataire n'est PAS un argument : le wrapper lit l'adresse du lecteur dans le profil de l'owner de cette run. Aucun agent ne choisit a qui il ecrit\n- L'URL par defaut est celle deployee en 3.4 : /c/<run>-eval/\n- La commande repond `invite <adresse> -> <url> — http 200` : sans cette ligne l'invitation n'est pas partie, et ca s'ecrit dans le livrable\n- Rien ne part si la verification de l'etape 3 n'est pas verte — c'est tout l'objet de ce nœud",
+          "si_succes": "étape 4 — vérification",
+          "si_echec": "l'envoi échoue : ne pas boucler — donner l'URL à la main et consigner l'échec"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "envoi: destinataire, canal, horodatage de l'envoi",
+          "lien: lien envoye"
+        ],
+        "a_dire": [
+          "CE QUE LE MESSAGE DIT au lecteur, en une phrase",
+          "SI L'ENVOI A ECHOUE : ou exactement, et ce qui reste a faire a la main"
+        ]
+      }
+    },
+    {
+      "id": "verif-notification",
+      "n": 4,
+      "type": "agent",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "state/notification-envoyee.json"
+      ],
+      "objectif": "Constater que l'invitation est partie, au bon lecteur, vers la bonne constellation, et que le serveur l'a acceptee. UN SEUL agent, quatre constats, un verdict binaire — le livrable n'affirme rien sur le monde, il enregistre un fait deja survenu.",
+      "taches": [
+        "Constater l'envoi et rendre le verdict"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Constater l'envoi et rendre le verdict",
+          "par": "le verificateur de l'envoi",
+          "objectif": "Savoir si on a prevenu le bon lecteur, au bon endroit, et si le serveur l'a accepte",
+          "livrable": "verifications/etape-4/registre.json — le verdict et les quatre constats ; verifications/etape-4.md — une page, verdict en tete, chaque constat avec la valeur lue en face",
+          "detail": "- SEUL : aucun sous-agent, aucun lot, aucun registre d'acquis. Ce controle se joue en une passe\n- LES QUATRE CONSTATS, avec la valeur lue a chaque fois — jamais « conforme » tout seul :\n  1. l'envoi est declare reussi et le serveur a repondu 200 (state/notification-envoyee.json)\n  2. le destinataire est celui du profil de l'owner (run-config.json du silo)\n  3. l'adresse envoyee est celle de la constellation de CETTE run\n  4. la page invitee repond (curl -o /dev/null -w \"%{http_code}\")\n- UNE SEULE FAUTE EST BLOQUANTE : pas parti, mauvais destinataire, ou mauvaise adresse. Le reste se consigne\n- SCORE BINAIRE : 100 si les quatre constats tiennent, 0 sinon. Un bareme par points sur un livrable unique mesure la finesse du decoupage, pas la qualite\n- TU NE DECOUPES PAS le fichier en champs : un element est un livrable, pas une cle de JSON\n- Tu ne juges ni le corps du message, ni l'etape 3, et tu ne relis aucun transcript"
+        }
+      ],
+      "agents": [
+        {
+          "role": "Le verificateur de l'envoi",
+          "outils": [
+            "lecture du livrable et du profil — Read",
+            "constat HTTP — Bash (curl)",
+            "verdict — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-envoi",
+              "role": "les quatre constats, le verdict binaire, ce qui bloque et ce qui se consigne"
+            }
+          ],
+          "contexte": "~15k"
+        }
+      ],
+      "livrables": [
+        "verifications/etape-4/",
+        "verifications/etape-4.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "notation"
+      ],
+      "consignes": [
+        "veille-verif-envoi"
+      ],
+      "verification": true,
+      "tools": [
+        "Read",
+        "Write",
+        "WebFetch",
+        "Bash",
+        "TodoWrite"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur la notification, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (canal d'envoi sans trace)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "notation",
+      "n": 5,
+      "type": "human",
+      "name": "Ta notation",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-4/",
+        "verifications/etape-4.md"
+      ],
+      "objectif": "Tu corriges les tiers sur la constellation, tu commentes, tu fais évoluer les axes. Barrière humaine : aucun agent ne fait ce travail, et rien n'avance tant que tu n'as pas fini.",
+      "url": "${CONSTELLATION_BASE_URL}/c/{slug}-eval/",
+      "taches": [
+        "Corriger les tiers",
+        "Commenter ce qui t'a marqué",
+        "Faire évoluer les axes",
+        "Envoyer ta notation"
+      ],
+      "livrables": [
+        "constellation-bundle/notation-terminee.json"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "feedback"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Corriger les tiers",
+          "objectif": "Dire où chaque finding aurait dû être rangé",
+          "livrable": "ta correction dans la page, sauvegardée à chaque geste",
+          "detail": "- Chaque finding est déjà posé dans une tier : tu le rapproches ou l'éloignes du centre\n- Excellent au cœur, Inutile en périphérie\n- Rien n'est jeté : c'est l'écart entre ta tier et celle de l'agent qui calibre les prochaines runs",
+          "si_succes": "5.2",
+          "si_echec": "tu ne déplaces rien : le classement de l'agent devient le tien — c'est un résultat valide, pas un oubli"
+        },
+        {
+          "titre": "Commenter ce qui t'a marqué",
+          "objectif": "Dire POURQUOI, là où la tier seule ne suffit pas",
+          "livrable": "un commentaire par carte, par axe, ou sur le nœud central",
+          "detail": "- Chaque commentaire est traité un par un au feedback, en NOW ou NEXT",
+          "si_succes": "5.3",
+          "si_echec": "rien à dire sur un finding : ne pas commenter — un commentaire vide vaut moins que pas de commentaire"
+        },
+        {
+          "titre": "Faire évoluer les axes",
+          "objectif": "Décider ce que la prochaine run va chercher",
+          "livrable": "tes décisions d'axes : garder, faire évoluer, retirer, ajouter",
+          "detail": "- Trancher aussi les axes candidats que l'éclaireur a ramenés\n- C'est ce qui pilote le subject.md de la prochaine run",
+          "si_succes": "5.4",
+          "si_echec": "aucun axe à faire évoluer : les garder tels quels, la prochaine run repart dessus"
+        },
+        {
+          "titre": "Envoyer ta notation",
+          "objectif": "Geler ton classement pour que la pipeline reprenne",
+          "livrable": "constellation-bundle/notation-terminee.json",
+          "detail": "- Le bouton « Envoyer ma notation » de la page\n- Tant que tu n'as pas cliqué, tes tiers et tes commentaires restent dans TON navigateur : aucun agent ne peut les lire",
+          "si_succes": "étape 6 — le feedback",
+          "si_echec": "le bouton ne répond pas : tes tiers sont encore dans ton navigateur, rien n'est perdu — recharger et renvoyer"
+        }
+      ]
+    },
+    {
+      "id": "feedback",
+      "n": 6,
+      "type": "local",
+      "name": "Feedback",
+      "modele": "opus",
+      "entree": [
+        "constellation-bundle/notation-terminee.json"
+      ],
+      "objectif": "Transformer ta notation en enseignements pour la run suivante, SANS dialogue. Une règle ne s'écrit que si elle retrouve tes classements ; le rapport de fin d'étape dit ce qui a été écrit et avec quel score, tu contestes après coup si tu veux.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-feedback"
+      ],
+      "tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "TodoWrite"
+      ],
+      "taches": [
+        "Lire les non-ouverts comme des rejets",
+        "Traiter tes commentaires un par un",
+        "Traiter les écarts de tier",
+        "Induire les règles par axe et les tester sur tes classements",
+        "Reconstruire le deck de préférence",
+        "Écrire l'évolution des axes",
+        "Ranger les notes et écrire le rapport de session"
+      ],
+      "livrables": [
+        "analyse-non-ouverts.md",
+        "regles-proposees.md",
+        "state/ecarts-tier.md",
+        "state/regles-axes.json",
+        "state/deck-*.json",
+        "profil-prochaine-run.json",
+        "ratings/*-ratings.jsonl",
+        "db/feedback-reports/"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "verif-feedback"
+      ],
+      "agents": [
+        {
+          "role": "L'agent de feedback (deck + consignes de chasse + règles de forme ; profileur & éclaireur en sous-agents)",
+          "outils": [
+            "lecture de ta notation (notation-terminée.json) — Read",
+            "classer tes commentaires NOW / NEXT — Write",
+            "ingérer les notes dans le magasin de ratings du silo — Write",
+            "écrire axes_prochaine_run + profil-prochaine-run.json — Write",
+            "SSH vers le serveur du site — Bash (ssh)"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-feedback",
+              "role": "le traitement des commentaires NOW/NEXT, l'identification des gardés, l'ingestion des ratings, l'évolution des axes (Volets A et B)"
+            }
+          ],
+          "contexte": "~200k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Lire les non-ouverts comme des rejets",
+          "objectif": "Récupérer un signal que rien d'autre ne donne : ce que tu n'as même pas ouvert",
+          "livrable": "analyse-non-ouverts.md",
+          "detail": "- Un finding non ouvert est un rejet prononcé sur le seul TITRE : c'est le seul signal qui juge la porte d'entrée\n- Chercher ce que les titres ouverts ont et que les autres n'ont pas",
+          "si_succes": "6.2",
+          "si_echec": "le signal de clic n'a pas voyagé : le dire dans l'analyse plutôt que de traiter tous les non-ouverts comme des rejets"
+        },
+        {
+          "titre": "Traiter tes commentaires un par un",
+          "objectif": "Qu'aucun commentaire ne reste sans suite",
+          "livrable": "regles-proposees.md — chaque commentaire, ce qu'il change, et où",
+          "detail": "- Un commentaire = une règle dans le fichier du rôle concerné\n- Trancher NOW (appliqué à la prochaine run) ou NEXT (mis en attente)",
+          "si_succes": "6.3",
+          "si_echec": "un commentaire que tu ne comprends pas : le poser tel quel en question ouverte, ne jamais l'interpréter"
+        },
+        {
+          "titre": "Traiter les écarts de tier",
+          "objectif": "Lire ce que tu as corrigé : chaque déplacement dit où l'agent s'est trompé",
+          "livrable": "state/ecarts-tier.md — par axe : ce que tu as monté, ce que tu as descendu, de combien de crans",
+          "detail": "- Un finding monté dit ce que l'agent sous-estime ; un finding descendu, ce qu'il surestime\n- Les SURCOTÉS (montés par l'agent, rabaissés par toi) sont le signal le plus net : ils disent où sa barre est trop haute\n- Regrouper par axe : c'est là que les régularités apparaissent",
+          "si_succes": "6.4",
+          "si_echec": "aucun écart : l'agent a visé juste — l'écrire, c'est un résultat, pas une étape vide"
+        },
+        {
+          "titre": "Induire les règles par axe et les tester sur tes classements",
+          "objectif": "N'écrire que les règles qui retrouvent vraiment ce que tu as fait",
+          "livrable": "state/regles-axes.json — par axe : la règle, son sens, ses mots-clés, son score de preuve",
+          "detail": "- Les candidates sortent des trois sources précédentes : les non-ouverts, tes commentaires, les écarts de tier\n- Tester chaque candidate sur tes classements réels\n- Seuil : au moins 3 classements testés, au moins deux tiers retrouvés\n- Sous le seuil, la règle ne s'écrit pas — elle va dans règles-proposées.md\n- Tes mots explicites (6.2) passent AVANT ce qu'on déduit de tes gestes : une règle induite qui contredit un commentaire est une règle fausse",
+          "si_succes": "6.5",
+          "si_echec": "une règle ne retrouve pas tes classements : elle ne se grave pas — la noter comme piste, rien de plus"
+        },
+        {
+          "titre": "Reconstruire le deck de préférence",
+          "objectif": "Donner aux agents de la prochaine run des exemples de ce que tu aimes et de ce que tu rejettes",
+          "livrable": "state/deck-<watch>.json — adorés, détestés, surcotés, avec le pourquoi de chacun",
+          "detail": "- Adorés = tes Excellent et Cool · Détestés = tes Bof et Inutile\n- SURCOTÉS = ce que l'agent avait monté et que tu as rabaissé : ils disent où la barre est placée trop haut\n- Le deck part chez les chasseurs et chez le juge d'intérêt",
+          "si_succes": "6.6",
+          "si_echec": "moins de findings notés que le deck n'en demande : le construire plus court, jamais le compléter avec du non-noté"
+        },
+        {
+          "titre": "Écrire l'évolution des axes",
+          "objectif": "Fixer ce que la prochaine run va chercher",
+          "livrable": "profil-prochaine-run.json — axes gardés, faits évoluer, retirés, ajoutés",
+          "detail": "- À partir des SEULES règles validées, jamais d'une intuition",
+          "si_succes": "6.7",
+          "si_echec": "aucune décision d'axe : recopier le profil courant — un fichier absent fait repartir la run suivante à l'aveugle"
+        },
+        {
+          "titre": "Ranger les notes et écrire le rapport de session",
+          "objectif": "Laisser une trace lisible de ce que cette run a appris",
+          "livrable": "ratings/<watch>-ratings.jsonl (une ligne par finding) + db/feedback-reports/<run>.md",
+          "detail": "- Le rapport dit ce qui a été écrit et avec quel score : tu le lis après coup et tu contestes si tu veux",
+          "si_succes": "étape 6 — vérification",
+          "si_echec": "le rapport ne s'écrit pas : les notes rangées suffisent à sauver la run, le rapport se refait après"
+        }
+      ],
+      "note_locale": "Étape jouée EN CONVERSATION, dans une session ouverte — le flux ne la lance pas, il constate ses livrables. Le lecteur commente ses classements, l'agent en tire les règles. Point d'entrée : le skill **`veille-feedback`**.",
+      "commande_locale": "flux-local veille feedback   (puis --push)",
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "notation: fiches notees par le lecteur → tiers corrigees",
+          "regles: regles proposees → regles ecrites dans le silo owner"
+        ],
+        "a_dire": [
+          "CE QUE LA NOTATION APPREND : l'ecart le plus net entre ce qu'on a place et ce qu'il a corrige",
+          "CE QUI PART EN CONSIGNE DE CHASSE (fond) vs EN REGLE DE FORME (redaction)",
+          "AUCUNE REGLE N'EST ATTRIBUEE AU LECTEUR sans un accord explicite de sa part — dis lesquelles attendent encore"
+        ]
+      }
+    },
+    {
+      "id": "verif-feedback",
+      "n": 6,
+      "type": "fanout",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "analyse-non-ouverts.md",
+        "regles-proposees.md",
+        "state/ecarts-tier.md",
+        "state/regles-axes.json",
+        "state/deck-*.json",
+        "profil-prochaine-run.json",
+        "ratings/*-ratings.jsonl",
+        "db/feedback-reports/"
+      ],
+      "objectif": "Fouiller au peigne fin les livrables de l'étape — contre leur définition close, et contre les sources qu'ils citent — et relever les failles. UN vérificateur FRAIS par LOT de livrables, tous en parallèle, aucun n'ayant participé au travail qu'il juge.",
+      "taches": [
+        "Recenser les livrables de chaque sous-étape et former les lots",
+        "Fouiller chaque livrable contre sa definition et ses sources",
+        "Agréger les failles en un rapport d'étape"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Recenser les livrables de chaque sous-étape et former les lots",
+          "par": "le chef de vérification",
+          "objectif": "Fixer le périmètre AVANT de juger, pour que personne ne choisisse ce qu'il regarde, et EXCLURE du perimetre ce qui porte deja un verdict conforme a empreinte inchangee",
+          "livrable": "verifications/etape-6/perimetre.md — une ligne par sous-étape avec son livrable, et LA LISTE DES LOTS : comment tu découpes les livrables en paquets de ~5 de même nature, et donc combien de vérificateurs tu lances ; verifications/etape-6/registre.json (les id A JUGER et ACQUIS y sont nommes source par source) — le verdict et l'empreinte de chaque unite jugee",
+          "detail": "- Toutes les sous-étapes du graphe, aucune ne se saute\n- Une sous-étape sans livrable écrit est déjà une faille\n\nLE REGISTRE DES VERDICTS — on ne rejuge jamais ce qui est deja conforme :\n- Une unite qui porte deja un verdict CONFORME est ACQUISE : cette passe ne la rejuge pas\n- SAUF SI ELLE PORTE ENCORE DES POINTS PERDUS ET QUE L'ETAPE EST SOUS SON SEUIL. Un acquis a `points` > 0 RENTRE dans le perimetre : ses points comptent contre l'etape a chaque passe, les laisser dormir rend le seuil inatteignable par arithmetique, quel que soit le travail. Il en ressort des que ses points tombent a zero, ou des que l'etape atteint son seuil\n- UN ACQUIS RAPPELE NE SE REJUGE PAS DE BOUT EN BOUT : il se relit sur la LISTE CLOSE des defauts deja consignes contre lui dans le registre, et sur rien d'autre. Aucun defaut neuf ne s'y ajoute. C'est ce qui fait converger : une seconde lecture LIBRE diverge, une lecture bornee a des defauts nommes ne peut que retrecir la liste\n- TROIS FAMILLES SEULEMENT rentrent par cette porte : precision non attestee, champs jumeaux desynchronises, ecart au profil de style. Une faute eliminatoire n'y rentre jamais — elle a refuse l'etape le jour ou elle a ete vue, elle ne dort pas dans un acquis\n- Seul le vert est acquis. Un refus repart en correction, et sa correction se rejuge\n- L'EMPREINTE NE S'ECRIT PAS A LA MAIN, ELLE SE FAIT TAMPONNER. Un element sans empreinte ne pourra JAMAIS etre reconnu comme acquis : la passe suivante le remettra au programme, en silence, comme s'il n'avait jamais ete juge. Quand tes verdicts sont poses, tamponne le registre : `python3 pipeline/empreintes-fiches.py --tamponner verifications/etape-<N>/registre.json <les sources jugees>` — il te dit combien d'empreintes il a posees et combien d'elements n'ont trouve aucune source, ce qui est une faute a corriger, pas un avertissement a ignorer\n- ET NE RECOMPTE RIEN A LA MAIN : `python3 pipeline/etat-run.py <workspace>` rend en UN appel les comptes, les champs manquants avec les id concernes, les repartitions, les longueurs en mots et le md5 de chaque livrable. `--element <id>`, `--champs a,b`, `--seulement <source>`, `--json`. Un script de comptage jetable, c'est un tour de parole par question ; cet outil repond a toutes en un seul\n- CALCULE TON PERIMETRE AVEC L'OUTIL, PAS DE TETE : `empreintes-fiches.py --diff verifications/etape-<N>/registre.json <les sources>` rend les id A JUGER — jamais vus, ou empreinte differente du registre. Ce que l'outil ne nomme pas est acquis et ne se relit pas\n- L'ACQUIS SE COMPTE AU GRAIN DE L'ELEMENT JUGE, PAS DU FICHIER QUI LE PORTE. Un element est la plus petite chose qui porte un verdict : une fiche de chasse, un essentiel, une entree de livrable. Dix elements dont trois sont refuses repartent en correction ; a la passe suivante, seuls ces trois-la se rejugent, plus tout element dont l'empreinte a bouge. Les sept autres sont acquis et ne se relisent pas, MEME SI le fichier qui les porte a ete reecrit\n- Le DISPATCH, lui, reste au grain du LOT : un verificateur par lot, jamais un par element, et jamais un par transcript — une session par element repaierait son contexte de depart a chaque fois\n- Le registre `verifications/etape-6/registre.json` porte une entree par unite jugee : id, source (le fichier ou le dossier juge), verdict (conforme|refuse), passe, et `elements` = un objet id -> { verdict, passe, empreinte }\n- L'empreinte d'un element porte sur LUI SEUL et se calcule mecaniquement, jamais a l'oeil : `python3 pipeline/empreintes-fiches.py <source>` rend id -> md5 (sections `## <id>` d'un .md, un fichier par element dans un dossier, une cle ou une ligne dans un .json/.jsonl), et `--diff <registre.json> <source>` rend directement les id a juger\n- Un CONTROLE D'ENSEMBLE reste au grain du lot — dedoublonnage, comptes, figeage, ordre, coherence entre elements : il porte sur la collection, pas sur un element, et se rejuge des qu'un element du lot a bouge\n- L'empreinte fait tenir l'acquis : un livrable reecrit depuis son verdict n'est plus celui qui a ete juge — son acquis tombe et il se rejuge\n- Le perimetre se calcule AVANT d'ouvrir un livrable, ELEMENT PAR ELEMENT : a juger = element jamais juge, refuse a la passe precedente, empreinte differente du registre, OU acquis a `points` > 0 tant que l'etape est sous son seuil ; hors perimetre = element conforme, empreinte inchangee ET points a zero. `perimetre.md` nomme, pour chaque source, les id A JUGER et les id ACQUIS\n- L'outil `--diff` ne connait que les empreintes : les acquis a points non nuls, tu les ajoutes toi-meme en lisant `points` dans le registre, et tu ecris dans `perimetre.md` pourquoi chacun revient et QUELS defaults nommes il vient corriger\n- Rejuger un acquis ne fiabilise rien : deux lectures fraiches du meme texte ne rendent pas le meme verdict. Sans registre, la boucle etape ↔ verification ne converge jamais\n- Le registre porte deux champs de plus, lus EN MACHINE par l'orchestrateur :\n  `refus_consecutifs` sur chaque unite refusee — combien de fois d'affilee elle a ete refusee POUR LE MEME MOTIF ; il repart a zero des qu'elle passe ou que le motif change ; le nœud tient le compteur, il ne fixe pas le seuil — c'est l'orchestrateur qui arrete la boucle et alerte quand il est atteint\n  `motif_court` — le motif de fond, formule pareil d'une passe a l'autre, sinon le compteur ne compte rien\n- UN ELEMENT EST UN LIVRABLE, JAMAIS UN CHAMP A L'INTERIEUR D'UN LIVRABLE. Une fiche, un essentiel, un rapport, un fichier d'etat sont des elements ; les cles d'un JSON, les sections d'un document, les lignes d'un tableau n'en sont pas — ce sont les points que la definition close deroule A L'INTERIEUR d'un element\n- EN DESSOUS D'UN LOT, PAS D'EQUIPE : si le perimetre tient en un lot (~5 livrables ou moins), il n'y a ni chef, ni dispatch, ni agregation. UN SEUL verificateur recense, juge, tamponne le registre et ecrit le rapport d'etape. Les trois sous-etapes restent, jouees par le meme agent\n- MESURE QUI MOTIVE LA REGLE : l'etape 4 rend UN SEUL fichier ; il a ete decoupe en 24 « elements » qui etaient ses champs, puis en 5 lots, donc 5 verificateurs frais repayant chacun leur contexte — 19,4 M de jetons, 23 $ et 23 minutes pour verifier qu'un email est parti",
+          "si_succes": "6-verification.2",
+          "si_echec": "un livrable introuvable : le nommer comme manquant dans le périmètre — on ne réduit pas le périmètre à ce qu'on trouve facilement"
+        },
+        {
+          "titre": "Fouiller chaque livrable contre sa definition et ses sources",
+          "par": "les vérificateurs",
+          "objectif": "Trouver l'écart entre ce que le livrable affirme et ce que sa définition exige ou ce que sa source porte — et rendre TOUTES les fautes de l'element en une seule passe, jamais une par passe",
+          "livrable": "verifications/etape-6/<agent>.md — ce que le livrable affirme · ce que sa definition exige ou ce que sa source porte · verdict",
+          "detail": "- UN vérificateur FRAIS par LOT DE LIVRABLES, tous en parallèle, chacun aveugle aux autres\n- UN LOT EST UN PAQUET DE LIVRABLES (~5 elements de meme nature), PAS UNE SESSION D'AGENT. Le nombre de verificateurs se calcule sur les LIVRABLES, jamais sur le nombre de transcripts que le producteur a laisses : il peut avoir decoupe son travail en trente sous-agents, ca ne fait pas trente lots. JAMAIS PLUS DE VERIFICATEURS QUE DE LOTS\n- TA SOURCE DE VERITE, ET IL N'Y EN A PAS D'AUTRE : la notation du lecteur et les livrables du feedback\n- UNE FAUTE GRAVE SE VERIFIE CONTRE ELLE, jamais de memoire ni au jugement. Avant d'ecrire GRAVE sur un chiffre, un nom, une date, une citation ou un lien de cause : ouvre le livrable et compare\n- Si la chaine y est : il n'y a PAS de faute. Si ta source de verite est injoignable par toutes les voies, la faute est « non verifiable », jamais GRAVE\n- Ce controle ne vaut que pour les GRAVES d'attestation — le reste (comptes, champs manquants, forme, coherence entre elements) se lit dans les livrables eux-memes\n- Ne rien inventer : zéro faille est un résultat valide s'il est adossé aux traces\n\nAVANT DE JUGER, ENUMERE — c'est ce qui fait rendre TOUTES les fautes d'un coup, et non une par passe :\n- Ecris d'abord, pour CHAQUE element de ton perimetre, la LISTE CLOSE de ce qui est verifiable en lui. Definition close disponible (fiche, JSON, rapport a sections) : ce sont ses champs. Document en PROSE (note, journal, verdict) : ce sont TOUTES ses affirmations verifiables — chaque fait, chaque attestation (« X le confirme », « les deux sources disent », « reproduit a l'identique »), chaque chiffre, chaque citation, chaque nom propre\n- Puis rends un verdict sur CHAQUE LIGNE de ta liste, conforme comprise, avec sa trace. Un rapport qui ne montre que les fautes n'a pas montre sa couverture : il est INVALIDE\n- Une faute trouvee a la passe suivante DANS UN ELEMENT DEJA JUGE et absente de ta liste est une faute de la verification, pas du producteur — c'est ce qui fait tourner la boucle a une faute par passe\n- L'enumeration se fait AVANT d'ouvrir le livrable : autrement tu listes ce que tu viens de trouver, pas ce qu'il fallait regarder\n\nUN ELEMENT SE LIT JUSQU AU BOUT — meme deja refuse :\n- Des qu'une faute est trouvee dans un element, tu CONTINUES a le derouler jusqu au dernier point de ta liste. Un element refuse une fois repart en correction de toute facon: chercher la deuxieme faute ne change pas son verdict, mais l'omettre la renvoie a la passe suivante, qui coutera un tour entier pour elle seule\n- Tu releves le MAXIMUM de fautes en une passe. Une faute que tu vois et que tu ne notes pas est une faute que tu fabriques pour le tour d'apres\n- Ton rapport dit, pour chaque element juge, TOUS ses defauts — pas le premier, pas le plus grave: tous\n\nCHAQUE FAUTE PORTE UN POIDS — c'est lui qui decide si l'etape passe :\n- GRAVE (hors score, BLOQUANT) : le livrable AFFIRME ce que sa source ne soutient pas — un chiffre, un nom, une date, une attestation. Le lecteur lirait un fait faux. Une seule suffit a refuser l'etape, quel que soit le pourcentage\n- MOYEN (3 points) : le livrable est incomplet ou incoherent SANS mentir — champ absent, comptes qui ne tombent pas, doublon non vu, ordre faux, contrainte de forme franchie\n- LEGER (1 point) : forme et tracabilite — citation normalisee, en-tete perime, chemin instable, journal qui se contredit sur un nom de fichier\n- Chaque element juge vaut 10 points au depart. Tu ecris le poids de CHAQUE faute dans ton rapport, a cote de la faille\n\nCE QU'ON REGARDE À CETTE ÉTAPE :\n- Chaque règle écrite passe-t-elle vraiment le seuil ? (score annoncé vs classements réellement testés)\n- Une règle induite contredit-elle un commentaire explicite du lecteur ?\n- Tous les commentaires ont-ils été traités, ou certains sont-ils restés sans suite ?\n- Le deck contient-il bien les surcotés, et pas seulement les adorés et détestés ?\n- L'évolution des axes sort-elle des SEULES règles validées, ou d'une intuition ?",
+          "si_succes": "6-verification.3",
+          "si_echec": "une source injoignable par toutes les voies : le rapport conclut « non vérifiable » et le dit, il ne conclut jamais « conforme »"
+        },
+        {
+          "titre": "Agréger les failles en un rapport d'étape",
+          "par": "le chef de vérification",
+          "objectif": "Dire si l'étape peut alimenter la suivante, ou ce qu'il faut refaire",
+          "livrable": "verifications/etape-6.md — le verdict d'étape et la liste des failles bloquantes ; le score pondere est ecrit dans verifications/etape-<N>/registre.json",
+          "detail": "- Le rapport agrège les rapports de lot, il ne les réécrit pas\n- Une faille dit : la sous-étape, l'écart constaté, et le geste qui répare\n- POUR UN ACQUIS RAPPELE, le rapport DONNE de quoi corriger sans rouvrir le livrable : le passage fautif recopie tel quel, le defaut nomme par sa famille, et le geste attendu — recopie ou retrait. Un identifiant seul renvoie l'auteur a une fouille, et une fouille produit une reformulation, donc le refus d'apres\n- UNE PRESCRIPTION RECOPIE LA SOURCE, ELLE NE REDIGE PAS : la chaine prescrite en remplacement doit exister dans la source (phrase recopiee, chiffre lu, reserve que la source pose). Jamais reformuler, jamais calculer, jamais resumer\n- Le motif n'est pas stylistique : le juge frais suivant lira cette chaine sans savoir qu'elle vient d'une correction, ne la trouvera pas dans la source, et la refusera — reformuler, c'est fabriquer le refus de la passe d'apres\n- Quand aucune recopie ne peut reparer (la source a ete revisee, elle ne dit plus ce que le livrable affirme) : prescrire le RETRAIT de l'affirmation fautive. Retirer est toujours possible et toujours sur — un texte ampute d'une nuance reste vrai, un texte qui garde une affirmation fausse ne l'est pas. Ce n'est pas rediger : on enleve, on n'ecrit rien\n- N'ESCALADER que si le retrait lui-meme emporte le fond du finding, ou si la decision ENGAGE LE PROPRIETAIRE : le perimetre de la run, un cout, une de SES regles a changer. Choisir entre deux formulations, garder ou retirer un chiffre, arbitrer densite contre fidelite : ce sont des arbitrages editoriaux, l'orchestrateur les tranche — ils n'arretent pas une run\n- `escalade` = {unite, question en une phrase, options telles quelles, sans en recommander une}. C'est ce champ, et lui seul, qui sort de la pipeline : une escalade ecrite seulement en prose ne sort jamais\n\nLE VERDICT D ETAPE EST UN SCORE, PAS UN OUI/NON :\n- LE SCORE PORTE SUR TOUS LES ELEMENTS DE L'ETAPE, JAMAIS SUR LE SEUL LOT REJUGE. Un element acquis garde les points qu'il a perdus le jour ou il a ete juge, et ces points restent au numerateur comme au denominateur\n- Poids total = 10 x TOUS les elements de l'etape (les acquis compris)\n- Poids perdu = la somme des points de CHAQUE element : ceux que tu viens de juger, plus ceux que les acquis reportent tels quels depuis le registre\n- Score = 100 x (1 - poids perdu / poids total), arrondi a l'entier\n- SANS CETTE REGLE LE SEUIL SE DURCIT A MESURE QUE LE TRAVAIL AVANCE : le vivier juge retrecit d'une passe a l'autre, donc le meme defaut coute de plus en plus cher. Trois elements restants pesent 30 points, ou 95 % n'autorise plus que 1,5 point de perte — un seul ecart de forme pour les trois reunis, au moment precis ou il reste le moins a corriger. L'etape devenait inatteignable par arithmetique, pas par qualite\n- CHAQUE ELEMENT PORTE SES POINTS DANS LE REGISTRE, poses par la passe qui l'a juge et recopies tels quels par les suivantes : `elements`: { `<id>`: { `verdict`, `passe`, `points`, `empreinte` } }. Un element sans `points` ne peut plus etre reporte et son acquis retombe, en silence\n- Ecris ce bloc dans `verifications/etape-<N>/registre.json`, a la racine : `score`: { `poids_total`, `poids_perdu`, `pourcentage`, `elements_total`, `elements_juges`, `fautes_graves` (le nombre), `defauts_restants` (le nombre) }\n- Le rapport porte le score en tete, avec le compte des fautes par poids\n- TU NE DECIDES PAS si l'etape passe : tu calcules et tu ecris. Le seuil vit dans l'orchestrateur, qui compare et tranche — un seuil recopie dans un rapport devient une deuxieme verite qui divergera",
+          "si_succes": "étape 7 — publier",
+          "si_echec": "une faille bloquante : retour à l'étape 6 avec la liste, puis re-vérification"
+        }
+      ],
+      "livrables": [
+        "verifications/etape-6/",
+        "verifications/etape-6.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "publier"
+      ],
+      "consignes": [
+        "veille-verif-etape"
+      ],
+      "agents": [
+        {
+          "role": "Le chef de vérification",
+          "outils": [
+            "recensement des livrables — Read",
+            "dispatch — dispatch",
+            "agrégation — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "recense les LOTS de livrables, dispatche un verificateur par lot, agrege les failles — et s'il n'y a qu'un seul lot il ne dispatche personne : il juge lui-meme, ecrit le rapport d'etape, et le role du verificateur ne s'instancie pas"
+            }
+          ],
+          "contexte": "~60k"
+        },
+        {
+          "role": "Le vérificateur",
+          "outils": [
+            "lecture des livrables de son lot — Read",
+            "lecture de ses livrables — Read",
+            "ouverture des sources si besoin — WebFetch",
+            "écriture du rapport — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "fouille les livrables d'UN LOT contre leur definition close et les sources qu'ils citent"
+            }
+          ],
+          "contexte": "~80k"
+        }
+      ],
+      "verification": true,
+      "tools": [
+        "Read",
+        "Write",
+        "WebFetch",
+        "Bash",
+        "TodoWrite"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur le feedback, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (notation incomplete)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "publier",
+      "n": 7,
+      "type": "agent",
+      "name": "Publier",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-6/",
+        "verifications/etape-6.md"
+      ],
+      "objectif": "Livrer la veille au lecteur et fermer la boucle : assembler ses livrables, déployer la constellation publiée en lecture seule, archiver, et réécrire la mémoire du domaine.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-publish",
+        "veille-verif-carte",
+        "veille-style"
+      ],
+      "tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "TodoWrite",
+        "Task"
+      ],
+      "taches": [
+        "Assembler les livrables du profil",
+        "Déployer la constellation publiée",
+        "Archiver les gardés",
+        "Réécrire la mémoire du domaine et le carnet de sources"
+      ],
+      "livrables": [
+        "publish/",
+        "publish/gardes.json",
+        "state/memory-*.json",
+        "publish/carnet-sources.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "verif-publication"
+      ],
+      "agents": [
+        {
+          "role": "Le chef de publication",
+          "outils": [
+            "lancer les synthétiseurs et leurs vérificateurs par vagues (max 5 en parallèle) — dispatch",
+            "archivage + carnet de sources + mémoire du domaine — Write / code",
+            "SSH vers le serveur du site — Bash (ssh)"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-publish",
+              "role": "le protocole de publication : livrables, archivage, constellation publiée (lecture seule), carnet de sources, mémoire du domaine"
+            },
+            {
+              "nom": "veille-style",
+              "role": "le style d'ecriture unique — les huit gestes et l'exemple de reference"
+            }
+          ],
+          "contexte": "~200k"
+        },
+        {
+          "role": "Le vérificateur de carte",
+          "outils": [
+            "lire les fiches — Read",
+            "lecture carte + sources — Read",
+            "écriture de son verdict — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-carte",
+              "role": "le vérificateur de carte : juge l'écart carte ↔ sources"
+            }
+          ],
+          "contexte": "~120k"
+        },
+        {
+          "role": "Le publieur",
+          "outils": [
+            "produire les livrables du profil (digest, mindmap, newsletter…) — Write",
+            "archivage des gardés (base + Notion miroir) — Write",
+            "constellation publiée (lecture seule) — code",
+            "alimenter le carnet de sources",
+            "SSH vers le serveur du site — écrire la mémoire du domaine à jour"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-publish",
+              "role": "le protocole de publication : livrables, archivage, constellation publiée, carnet de sources, mémoire du domaine"
+            }
+          ],
+          "contexte": "~200k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Assembler les livrables du profil",
+          "par": "le chef de rédaction",
+          "objectif": "Mettre les essentiels déjà écrits dans le format que le lecteur reçoit",
+          "livrable": "publish/ — les livrables déclarés dans le profil du lecteur",
+          "detail": "- On ASSEMBLE des essentiels existants, écrits et vérifiés à l'étape 3 : aucune réécriture, aucun texte nouveau\n- Le format vient du profil (digest, newsletter, mindmap…), pas d'une liste fixe",
+          "si_succes": "7.2",
+          "si_echec": "un format du profil impossible à produire : livrer les autres et dire lequel manque, jamais livrer un format à moitié"
+        },
+        {
+          "titre": "Déployer la constellation publiée",
+          "par": "le publieur",
+          "objectif": "Que le lecteur retrouve TOUTE sa bibliothèque, pas seulement la semaine",
+          "livrable": "/c/<run>-publie/ en HTTP 200 — une livraison par date, empilées en profondeur",
+          "detail": "- build_publie.py sur le silo entier, pas sur la seule run\n- Publier la seule run de la semaine perd le cumul, qui est justement la valeur\n- Lecture seule : la notation a déjà eu lieu",
+          "si_succes": "7.3",
+          "si_echec": "la page ne répond pas : ne rien annoncer — une livraison qu'on ne peut pas ouvrir n'est pas une livraison"
+        },
+        {
+          "titre": "Archiver les gardés",
+          "par": "le publieur",
+          "objectif": "Que l'étape 1.7 de la prochaine run sache ce qui a déjà été livré",
+          "livrable": "publish/gardes.json — la liste des gardés de cette run ; et archives/ dans le silo owner — un fichier par finding gardé, avec sa tier",
+          "detail": "- LU PAR l'étape 1.7 de la run suivante, qui ne recopiera que ce qui est encore dans la fenêtre de son axe\n- Archiver aussi les « à suivre »\n- Apparier « même sujet » entre findings : c'est le seul jugement de cette étape, et il porte sur du vérifié",
+          "si_succes": "7.4",
+          "si_echec": "l'archivage échoue : bloquant — la run suivante ressortirait ce qui vient d'être livré"
+        },
+        {
+          "titre": "Réécrire la mémoire du domaine et le carnet de sources",
+          "par": "le publieur",
+          "objectif": "Que les chasseurs de la prochaine run sachent ce que le lecteur sait déjà",
+          "livrable": "state/memory-<watch>.json + publish/carnet-sources.md",
+          "detail": "- La MÉMOIRE DU DOMAINE est LUE PAR les chasseurs (2.2) et le juge d'intérêt (2-vérification.2) : c'est elle qui leur permet de juger la redite\n- Elle se RÉÉCRIT à partir de cette run, elle ne s'incrémente pas\n- Le CARNET DE SOURCES est LU PAR les chasseurs : quels domaines ont produit du bon, lesquels du bruit\n- Pas optionnel : une run publiée sans mise à jour de la mémoire est une accumulation perdue",
+          "si_succes": "étape 7 — vérification",
+          "si_echec": "la mémoire ne se réécrit pas : bloquant — une run publiée sans mémoire est une accumulation perdue"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "livrables: livrables produits",
+          "publication: URL publiee et son code HTTP",
+          "archives: entrees ajoutees au carnet de sources et a la memoire du domaine"
+        ],
+        "a_dire": [
+          "CE QUI EST ARCHIVE et ou le retrouver",
+          "CE QUI DIFFERE entre la constellation d'evaluation et celle qui est publiee"
+        ]
+      }
+    },
+    {
+      "id": "verif-publication",
+      "n": 7,
+      "type": "fanout",
+      "name": "Vérification",
+      "modele": "opus",
+      "entree": [
+        "publish/",
+        "publish/gardes.json",
+        "state/memory-*.json",
+        "publish/carnet-sources.md"
+      ],
+      "objectif": "Fouiller au peigne fin les livrables de l'étape — contre leur définition close, et contre les sources qu'ils citent — et relever les failles. UN vérificateur FRAIS par LOT de livrables, tous en parallèle, aucun n'ayant participé au travail qu'il juge.",
+      "taches": [
+        "Recenser les livrables de chaque sous-étape et former les lots",
+        "Fouiller chaque livrable contre sa definition et ses sources",
+        "Agréger les failles en un rapport d'étape"
+      ],
+      "taches_detail": [
+        {
+          "titre": "Recenser les livrables de chaque sous-étape et former les lots",
+          "par": "le chef de vérification",
+          "objectif": "Fixer le périmètre AVANT de juger, pour que personne ne choisisse ce qu'il regarde, et EXCLURE du perimetre ce qui porte deja un verdict conforme a empreinte inchangee",
+          "livrable": "verifications/etape-7/perimetre.md — une ligne par sous-étape avec son livrable, et LA LISTE DES LOTS : comment tu découpes les livrables en paquets de ~5 de même nature, et donc combien de vérificateurs tu lances ; verifications/etape-7/registre.json (les id A JUGER et ACQUIS y sont nommes source par source) — le verdict et l'empreinte de chaque unite jugee",
+          "detail": "- Toutes les sous-étapes du graphe, aucune ne se saute\n- Une sous-étape sans livrable écrit est déjà une faille\n\nLE REGISTRE DES VERDICTS — on ne rejuge jamais ce qui est deja conforme :\n- Une unite qui porte deja un verdict CONFORME est ACQUISE : cette passe ne la rejuge pas\n- SAUF SI ELLE PORTE ENCORE DES POINTS PERDUS ET QUE L'ETAPE EST SOUS SON SEUIL. Un acquis a `points` > 0 RENTRE dans le perimetre : ses points comptent contre l'etape a chaque passe, les laisser dormir rend le seuil inatteignable par arithmetique, quel que soit le travail. Il en ressort des que ses points tombent a zero, ou des que l'etape atteint son seuil\n- UN ACQUIS RAPPELE NE SE REJUGE PAS DE BOUT EN BOUT : il se relit sur la LISTE CLOSE des defauts deja consignes contre lui dans le registre, et sur rien d'autre. Aucun defaut neuf ne s'y ajoute. C'est ce qui fait converger : une seconde lecture LIBRE diverge, une lecture bornee a des defauts nommes ne peut que retrecir la liste\n- TROIS FAMILLES SEULEMENT rentrent par cette porte : precision non attestee, champs jumeaux desynchronises, ecart au profil de style. Une faute eliminatoire n'y rentre jamais — elle a refuse l'etape le jour ou elle a ete vue, elle ne dort pas dans un acquis\n- Seul le vert est acquis. Un refus repart en correction, et sa correction se rejuge\n- L'EMPREINTE NE S'ECRIT PAS A LA MAIN, ELLE SE FAIT TAMPONNER. Un element sans empreinte ne pourra JAMAIS etre reconnu comme acquis : la passe suivante le remettra au programme, en silence, comme s'il n'avait jamais ete juge. Quand tes verdicts sont poses, tamponne le registre : `python3 pipeline/empreintes-fiches.py --tamponner verifications/etape-<N>/registre.json <les sources jugees>` — il te dit combien d'empreintes il a posees et combien d'elements n'ont trouve aucune source, ce qui est une faute a corriger, pas un avertissement a ignorer\n- ET NE RECOMPTE RIEN A LA MAIN : `python3 pipeline/etat-run.py <workspace>` rend en UN appel les comptes, les champs manquants avec les id concernes, les repartitions, les longueurs en mots et le md5 de chaque livrable. `--element <id>`, `--champs a,b`, `--seulement <source>`, `--json`. Un script de comptage jetable, c'est un tour de parole par question ; cet outil repond a toutes en un seul\n- CALCULE TON PERIMETRE AVEC L'OUTIL, PAS DE TETE : `empreintes-fiches.py --diff verifications/etape-<N>/registre.json <les sources>` rend les id A JUGER — jamais vus, ou empreinte differente du registre. Ce que l'outil ne nomme pas est acquis et ne se relit pas\n- L'ACQUIS SE COMPTE AU GRAIN DE L'ELEMENT JUGE, PAS DU FICHIER QUI LE PORTE. Un element est la plus petite chose qui porte un verdict : une fiche de chasse, un essentiel, une entree de livrable. Dix elements dont trois sont refuses repartent en correction ; a la passe suivante, seuls ces trois-la se rejugent, plus tout element dont l'empreinte a bouge. Les sept autres sont acquis et ne se relisent pas, MEME SI le fichier qui les porte a ete reecrit\n- Le DISPATCH, lui, reste au grain du LOT : un verificateur par lot, jamais un par element, et jamais un par transcript — une session par element repaierait son contexte de depart a chaque fois\n- Le registre `verifications/etape-7/registre.json` porte une entree par unite jugee : id, source (le fichier ou le dossier juge), verdict (conforme|refuse), passe, et `elements` = un objet id -> { verdict, passe, empreinte }\n- L'empreinte d'un element porte sur LUI SEUL et se calcule mecaniquement, jamais a l'oeil : `python3 pipeline/empreintes-fiches.py <source>` rend id -> md5 (sections `## <id>` d'un .md, un fichier par element dans un dossier, une cle ou une ligne dans un .json/.jsonl), et `--diff <registre.json> <source>` rend directement les id a juger\n- Un CONTROLE D'ENSEMBLE reste au grain du lot — dedoublonnage, comptes, figeage, ordre, coherence entre elements : il porte sur la collection, pas sur un element, et se rejuge des qu'un element du lot a bouge\n- L'empreinte fait tenir l'acquis : un livrable reecrit depuis son verdict n'est plus celui qui a ete juge — son acquis tombe et il se rejuge\n- Le perimetre se calcule AVANT d'ouvrir un livrable, ELEMENT PAR ELEMENT : a juger = element jamais juge, refuse a la passe precedente, empreinte differente du registre, OU acquis a `points` > 0 tant que l'etape est sous son seuil ; hors perimetre = element conforme, empreinte inchangee ET points a zero. `perimetre.md` nomme, pour chaque source, les id A JUGER et les id ACQUIS\n- L'outil `--diff` ne connait que les empreintes : les acquis a points non nuls, tu les ajoutes toi-meme en lisant `points` dans le registre, et tu ecris dans `perimetre.md` pourquoi chacun revient et QUELS defaults nommes il vient corriger\n- Rejuger un acquis ne fiabilise rien : deux lectures fraiches du meme texte ne rendent pas le meme verdict. Sans registre, la boucle etape ↔ verification ne converge jamais\n- Le registre porte deux champs de plus, lus EN MACHINE par l'orchestrateur :\n  `refus_consecutifs` sur chaque unite refusee — combien de fois d'affilee elle a ete refusee POUR LE MEME MOTIF ; il repart a zero des qu'elle passe ou que le motif change ; le nœud tient le compteur, il ne fixe pas le seuil — c'est l'orchestrateur qui arrete la boucle et alerte quand il est atteint\n  `motif_court` — le motif de fond, formule pareil d'une passe a l'autre, sinon le compteur ne compte rien\n- UN ELEMENT EST UN LIVRABLE, JAMAIS UN CHAMP A L'INTERIEUR D'UN LIVRABLE. Une fiche, un essentiel, un rapport, un fichier d'etat sont des elements ; les cles d'un JSON, les sections d'un document, les lignes d'un tableau n'en sont pas — ce sont les points que la definition close deroule A L'INTERIEUR d'un element\n- EN DESSOUS D'UN LOT, PAS D'EQUIPE : si le perimetre tient en un lot (~5 livrables ou moins), il n'y a ni chef, ni dispatch, ni agregation. UN SEUL verificateur recense, juge, tamponne le registre et ecrit le rapport d'etape. Les trois sous-etapes restent, jouees par le meme agent\n- MESURE QUI MOTIVE LA REGLE : l'etape 4 rend UN SEUL fichier ; il a ete decoupe en 24 « elements » qui etaient ses champs, puis en 5 lots, donc 5 verificateurs frais repayant chacun leur contexte — 19,4 M de jetons, 23 $ et 23 minutes pour verifier qu'un email est parti",
+          "si_succes": "7-verification.2",
+          "si_echec": "un livrable introuvable : le nommer comme manquant dans le périmètre — on ne réduit pas le périmètre à ce qu'on trouve facilement"
+        },
+        {
+          "titre": "Fouiller chaque livrable contre sa definition et ses sources",
+          "par": "les vérificateurs",
+          "objectif": "Trouver l'écart entre ce que le livrable affirme et ce que sa définition exige ou ce que sa source porte — et rendre TOUTES les fautes de l'element en une seule passe, jamais une par passe",
+          "livrable": "verifications/etape-7/<agent>.md — ce que le livrable affirme · ce que sa definition exige ou ce que sa source porte · verdict",
+          "detail": "- UN vérificateur FRAIS par LOT DE LIVRABLES, tous en parallèle, chacun aveugle aux autres\n- UN LOT EST UN PAQUET DE LIVRABLES (~5 elements de meme nature), PAS UNE SESSION D'AGENT. Le nombre de verificateurs se calcule sur les LIVRABLES, jamais sur le nombre de transcripts que le producteur a laisses : il peut avoir decoupe son travail en trente sous-agents, ca ne fait pas trente lots. JAMAIS PLUS DE VERIFICATEURS QUE DE LOTS\n- TA SOURCE DE VERITE, ET IL N'Y EN A PAS D'AUTRE : les livrables publies et l'URL servie\n- UNE FAUTE GRAVE SE VERIFIE CONTRE ELLE, jamais de memoire ni au jugement. Avant d'ecrire GRAVE sur un chiffre, un nom, une date, une citation ou un lien de cause : ouvre le livrable et compare\n- Si la chaine y est : il n'y a PAS de faute. Si ta source de verite est injoignable par toutes les voies, la faute est « non verifiable », jamais GRAVE\n- Ce controle ne vaut que pour les GRAVES d'attestation — le reste (comptes, champs manquants, forme, coherence entre elements) se lit dans les livrables eux-memes\n- Ne rien inventer : zéro faille est un résultat valide s'il est adossé aux traces\n\nAVANT DE JUGER, ENUMERE — c'est ce qui fait rendre TOUTES les fautes d'un coup, et non une par passe :\n- Ecris d'abord, pour CHAQUE element de ton perimetre, la LISTE CLOSE de ce qui est verifiable en lui. Definition close disponible (fiche, JSON, rapport a sections) : ce sont ses champs. Document en PROSE (note, journal, verdict) : ce sont TOUTES ses affirmations verifiables — chaque fait, chaque attestation (« X le confirme », « les deux sources disent », « reproduit a l'identique »), chaque chiffre, chaque citation, chaque nom propre\n- Puis rends un verdict sur CHAQUE LIGNE de ta liste, conforme comprise, avec sa trace. Un rapport qui ne montre que les fautes n'a pas montre sa couverture : il est INVALIDE\n- Une faute trouvee a la passe suivante DANS UN ELEMENT DEJA JUGE et absente de ta liste est une faute de la verification, pas du producteur — c'est ce qui fait tourner la boucle a une faute par passe\n- L'enumeration se fait AVANT d'ouvrir le livrable : autrement tu listes ce que tu viens de trouver, pas ce qu'il fallait regarder\n\nUN ELEMENT SE LIT JUSQU AU BOUT — meme deja refuse :\n- Des qu'une faute est trouvee dans un element, tu CONTINUES a le derouler jusqu au dernier point de ta liste. Un element refuse une fois repart en correction de toute facon: chercher la deuxieme faute ne change pas son verdict, mais l'omettre la renvoie a la passe suivante, qui coutera un tour entier pour elle seule\n- Tu releves le MAXIMUM de fautes en une passe. Une faute que tu vois et que tu ne notes pas est une faute que tu fabriques pour le tour d'apres\n- Ton rapport dit, pour chaque element juge, TOUS ses defauts — pas le premier, pas le plus grave: tous\n\nCHAQUE FAUTE PORTE UN POIDS — c'est lui qui decide si l'etape passe :\n- GRAVE (hors score, BLOQUANT) : le livrable AFFIRME ce que sa source ne soutient pas — un chiffre, un nom, une date, une attestation. Le lecteur lirait un fait faux. Une seule suffit a refuser l'etape, quel que soit le pourcentage\n- MOYEN (3 points) : le livrable est incomplet ou incoherent SANS mentir — champ absent, comptes qui ne tombent pas, doublon non vu, ordre faux, contrainte de forme franchie\n- LEGER (1 point) : forme et tracabilite — citation normalisee, en-tete perime, chemin instable, journal qui se contredit sur un nom de fichier\n- Chaque element juge vaut 10 points au depart. Tu ecris le poids de CHAQUE faute dans ton rapport, a cote de la faille\n\nCE QU'ON REGARDE À CETTE ÉTAPE :\n- La constellation publiée montre-t-elle TOUTE la bibliothèque, ou seulement la run de la semaine ?\n- Les livrables assemblent-ils des essentiels existants, ou du texte a-t-il été réécrit en chemin ?\n- Tous les gardés sont-ils archivés, avec leur tier ?\n- La mémoire du domaine a-t-elle été RÉÉCRITE depuis cette run, ou recopiée de la précédente ?\n- Le carnet de sources a-t-il été alimenté par les domaines réellement retenus ?",
+          "si_succes": "7-verification.3",
+          "si_echec": "une source injoignable par toutes les voies : le rapport conclut « non vérifiable » et le dit, il ne conclut jamais « conforme »"
+        },
+        {
+          "titre": "Agréger les failles en un rapport d'étape",
+          "par": "le chef de vérification",
+          "objectif": "Dire si la publication tient, ou ce qu'il faut refaire",
+          "livrable": "verifications/etape-7.md — le verdict d'étape et la liste des failles bloquantes ; le score pondere est ecrit dans verifications/etape-<N>/registre.json",
+          "detail": "- Le rapport agrège les rapports de lot, il ne les réécrit pas\n- Une faille dit : la sous-étape, l'écart constaté, et le geste qui répare\n- POUR UN ACQUIS RAPPELE, le rapport DONNE de quoi corriger sans rouvrir le livrable : le passage fautif recopie tel quel, le defaut nomme par sa famille, et le geste attendu — recopie ou retrait. Un identifiant seul renvoie l'auteur a une fouille, et une fouille produit une reformulation, donc le refus d'apres\n- UNE PRESCRIPTION RECOPIE LA SOURCE, ELLE NE REDIGE PAS : la chaine prescrite en remplacement doit exister dans la source (phrase recopiee, chiffre lu, reserve que la source pose). Jamais reformuler, jamais calculer, jamais resumer\n- Le motif n'est pas stylistique : le juge frais suivant lira cette chaine sans savoir qu'elle vient d'une correction, ne la trouvera pas dans la source, et la refusera — reformuler, c'est fabriquer le refus de la passe d'apres\n- Quand aucune recopie ne peut reparer (la source a ete revisee, elle ne dit plus ce que le livrable affirme) : prescrire le RETRAIT de l'affirmation fautive. Retirer est toujours possible et toujours sur — un texte ampute d'une nuance reste vrai, un texte qui garde une affirmation fausse ne l'est pas. Ce n'est pas rediger : on enleve, on n'ecrit rien\n- N'ESCALADER que si le retrait lui-meme emporte le fond du finding, ou si la decision ENGAGE LE PROPRIETAIRE : le perimetre de la run, un cout, une de SES regles a changer. Choisir entre deux formulations, garder ou retirer un chiffre, arbitrer densite contre fidelite : ce sont des arbitrages editoriaux, l'orchestrateur les tranche — ils n'arretent pas une run\n- `escalade` = {unite, question en une phrase, options telles quelles, sans en recommander une}. C'est ce champ, et lui seul, qui sort de la pipeline : une escalade ecrite seulement en prose ne sort jamais\n\nLE VERDICT D ETAPE EST UN SCORE, PAS UN OUI/NON :\n- LE SCORE PORTE SUR TOUS LES ELEMENTS DE L'ETAPE, JAMAIS SUR LE SEUL LOT REJUGE. Un element acquis garde les points qu'il a perdus le jour ou il a ete juge, et ces points restent au numerateur comme au denominateur\n- Poids total = 10 x TOUS les elements de l'etape (les acquis compris)\n- Poids perdu = la somme des points de CHAQUE element : ceux que tu viens de juger, plus ceux que les acquis reportent tels quels depuis le registre\n- Score = 100 x (1 - poids perdu / poids total), arrondi a l'entier\n- SANS CETTE REGLE LE SEUIL SE DURCIT A MESURE QUE LE TRAVAIL AVANCE : le vivier juge retrecit d'une passe a l'autre, donc le meme defaut coute de plus en plus cher. Trois elements restants pesent 30 points, ou 95 % n'autorise plus que 1,5 point de perte — un seul ecart de forme pour les trois reunis, au moment precis ou il reste le moins a corriger. L'etape devenait inatteignable par arithmetique, pas par qualite\n- CHAQUE ELEMENT PORTE SES POINTS DANS LE REGISTRE, poses par la passe qui l'a juge et recopies tels quels par les suivantes : `elements`: { `<id>`: { `verdict`, `passe`, `points`, `empreinte` } }. Un element sans `points` ne peut plus etre reporte et son acquis retombe, en silence\n- Ecris ce bloc dans `verifications/etape-<N>/registre.json`, a la racine : `score`: { `poids_total`, `poids_perdu`, `pourcentage`, `elements_total`, `elements_juges`, `fautes_graves` (le nombre), `defauts_restants` (le nombre) }\n- Le rapport porte le score en tete, avec le compte des fautes par poids\n- TU NE DECIDES PAS si l'etape passe : tu calcules et tu ecris. Le seuil vit dans l'orchestrateur, qui compare et tranche — un seuil recopie dans un rapport devient une deuxieme verite qui divergera",
+          "si_succes": "étape 8 — le bilan",
+          "si_echec": "une faille bloquante : retour à l'étape 7 avec la liste, puis re-vérification"
+        }
+      ],
+      "livrables": [
+        "verifications/etape-7/",
+        "verifications/etape-7.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [
+        "bilan"
+      ],
+      "consignes": [
+        "veille-verif-etape"
+      ],
+      "agents": [
+        {
+          "role": "Le chef de vérification",
+          "outils": [
+            "recensement des livrables — Read",
+            "dispatch — dispatch",
+            "agrégation — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "recense les LOTS de livrables, dispatche un verificateur par lot, agrege les failles — et s'il n'y a qu'un seul lot il ne dispatche personne : il juge lui-meme, ecrit le rapport d'etape, et le role du verificateur ne s'instancie pas"
+            }
+          ],
+          "contexte": "~60k"
+        },
+        {
+          "role": "Le vérificateur",
+          "outils": [
+            "lecture des livrables de son lot — Read",
+            "lecture de ses livrables — Read",
+            "vérification HTTP de la page publiée — Bash",
+            "écriture du rapport — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-verif-etape",
+              "role": "fouille les livrables d'UN LOT contre leur definition close et les sources qu'ils citent"
+            }
+          ],
+          "contexte": "~80k"
+        }
+      ],
+      "verification": true,
+      "tools": [
+        "Read",
+        "Write",
+        "WebFetch",
+        "Bash",
+        "TodoWrite"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "elements: elements juges → conformes → refuses (et combien acquis, non rejuges)",
+          "fautes: fautes graves · moyennes · legeres",
+          "score: score pondere en %, et le seuil qu'il vise",
+          "stagnation: unites en refus consecutif, avec leur motif court"
+        ],
+        "a_dire": [
+          "LE MOTIF DOMINANT : la faute qui revient le plus souvent sur la publication, nommee en une phrase, avec combien de graves elle tient a elle seule",
+          "CE QUI EST PROPRE et ne se refait pas — nomme les acquis, c'est ce qui evite une passe entiere",
+          "CE QUI SE REPARE PAR RECOPIE OU RETRAIT vs ce qui exige un arbitrage : c'est ce qui decide si l'orchestrateur tranche seul",
+          "TOUTE ESCALADE posee, avec sa question et ses options — ou dis en clair qu'il n'y en a aucune",
+          "CE QUE TU N'AS PAS PU JUGER et pourquoi (URL injoignable)"
+        ],
+        "en_reparation": [
+          "ce que la passe precedente avait laisse, et ce qui a bouge depuis"
+        ]
+      },
+      "passes_max": 2
+    },
+    {
+      "id": "bilan",
+      "n": 8,
+      "type": "agent",
+      "name": "Bilan",
+      "modele": "opus",
+      "entree": [
+        "verifications/etape-7/",
+        "verifications/etape-7.md"
+      ],
+      "objectif": "Mesurer ce que la run a coûté et rapporté, et faire remonter dans les skills ce qui doit survivre à la run. Les rapports de vérification des six étapes sont la matière première.",
+      "consignes": [
+        "veille-pipeline",
+        "veille-analyse-etape"
+      ],
+      "tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "TodoWrite"
+      ],
+      "taches": [
+        "Mesurer le coût en tokens de la run",
+        "Relire les rapports de vérification des six étapes",
+        "Écrire le post-mortem",
+        "Reporter dans les skills ce qui doit survivre à la run"
+      ],
+      "livrables": [
+        "post-mortem.md",
+        "metrics/tokens-run.md"
+      ],
+      "juge": {
+        "type": "presence"
+      },
+      "suivant": [],
+      "agents": [
+        {
+          "role": "L'analyste",
+          "outils": [
+            "lecture des transcripts et mesures de la run — Read",
+            "les scripts de mesure (tableau-chasse.py, chronométrie)",
+            "écriture du rapport de phase — Write"
+          ],
+          "consignes": [
+            {
+              "nom": "veille-pipeline",
+              "role": "le socle — la carte des 8 etapes, les invariants vrais partout, la forme de la verification, ce qu'on ne fait jamais"
+            },
+            {
+              "nom": "veille-analyse-etape",
+              "role": "l'analyse d'une etape — transcripts contre skill et graphe, livrables, temps et tokens"
+            }
+          ],
+          "contexte": "~200k"
+        }
+      ],
+      "taches_detail": [
+        {
+          "titre": "Mesurer le coût en tokens de la run",
+          "objectif": "Savoir où partent les tokens, pour repérer ce qui coûte sans rapporter",
+          "livrable": "metrics/tokens-run.md — un tableau : étape · sous-étape · agent · tokens in · tokens out · total",
+          "detail": "- Lire TOUS les transcripts : le leader de chaque étape ET chacun de ses sous-agents\n- in = input + cache_read + cache_création · out = output\n- Totaux par sous-étape, par étape, et pour la run entière\n- Chiffres MESURÉS depuis les transcripts, jamais estimés",
+          "si_succes": "8.2",
+          "si_echec": "des transcripts incomplets : mesurer ce qui existe et dire ce qui manque, plutôt qu'un total faux"
+        },
+        {
+          "titre": "Relire les rapports de vérification des six étapes",
+          "objectif": "Voir ce qui a été refusé, et si les mêmes failles reviennent d'une étape à l'autre",
+          "livrable": "post-mortem.md — la section des failles, regroupées par nature",
+          "detail": "- verifications/etape-1.md à etape-7.md : la matière première du bilan\n- Une faille qui revient à plusieurs étapes est un défaut de SPEC, pas d'exécution",
+          "si_succes": "8.3",
+          "si_echec": "un rapport d'étape absent : le signaler comme trou de traçabilité — c'est déjà un enseignement"
+        },
+        {
+          "titre": "Écrire le post-mortem",
+          "objectif": "Laisser une trace de ce que cette run a appris sur elle-même",
+          "livrable": "post-mortem.md",
+          "detail": "- Ce qui a été refusé et pourquoi, les divergences entre juges, les fautes d'orchestration\n- Le taux de passage par passe, pour recalibrer la barre",
+          "si_succes": "8.4",
+          "si_echec": "rien à signaler : l'écrire quand même — une run sans défaut constaté est une information"
+        },
+        {
+          "titre": "Reporter dans les skills ce qui doit survivre à la run",
+          "objectif": "Qu'un enseignement ne meure pas avec le workspace",
+          "livrable": "les skills concernés, modifiés — ou une liste de corrections proposées",
+          "detail": "- Un fix de spec passe par /adjust-pipeline : il touche le graphe ET le skill\n- Ce qui est propre à cette run reste dans le post-mortem, il ne monte pas dans un skill",
+          "si_succes": "fin de la run",
+          "si_echec": "l'enseignement touche le graphe et pas seulement un skill : passer par `adjust-pipeline`, ne jamais éditer le graphe ici"
+        }
+      ],
+      "consignes_reprise": [
+        "veille-pipeline",
+        "pipeline-reparation"
+      ],
+      "rapport_de_passe": {
+        "chiffres": [
+          "passes: etapes jouees → passes au total",
+          "jetons: jetons de la run",
+          "graves: fautes graves rencontrees → fautes graves restantes a la fin"
+        ],
+        "a_dire": [
+          "LE DEFAUT DE FOND de cette run, celui qui a coute le plus de passes",
+          "CE QUI RELEVE DU SOCLE et doit remonter a /adjust-pipeline, pas au profil de l'owner"
+        ]
+      }
+    }
+  ],
+  "ouverture": {
+    "titre": "Ouvrir une livraison",
+    "slug": "{subject}-{owner}",
+    "entete": "subject: {subject}\nowner: {owner}\ntimestamp: {stamp}\nbase: {base}\ncreated_at: {iso}\n",
+    "sources": {
+      "_doc": "D'ou viennent les listes des champs `options_de` : les silos installes (un dossier par veille sous ~/veille-owners, son profil dans run-config.json ou profile.json). `comptes` = les titulaires distincts ; `veilles` = les silos ; `sujets` = le sujet de chaque silo, celui de sa run la plus recente s'il y en a une (prime_runs). Le serveur ne connait que les formes generiques dossiers / fichiers-json / cas.",
+      "comptes": {
+        "type": "fichiers-json",
+        "dossier": "~/veille-owners",
+        "fichiers": [
+          "run-config.json",
+          "profile.json"
+        ],
+        "valeur": "compte",
+        "libelle": "compte_nom",
+        "distinct": true
+      },
+      "veilles": {
+        "type": "fichiers-json",
+        "dossier": "~/veille-owners",
+        "fichiers": [
+          "run-config.json",
+          "profile.json"
+        ],
+        "valeur": "@dossier",
+        "libelle": "nom",
+        "groupe": "compte",
+        "paire": {
+          "owner": "@dossier",
+          "subject": [
+            "sujet_slug",
+            "@dossier"
+          ]
+        },
+        "prime_runs": {
+          "cle": "owner",
+          "champ": "subject",
+          "remplace": "sujet_slug"
+        }
+      },
+      "sujets": {
+        "type": "fichiers-json",
+        "dossier": "~/veille-owners",
+        "fichiers": [
+          "run-config.json",
+          "profile.json"
+        ],
+        "valeur": [
+          "sujet_slug",
+          "@dossier"
+        ],
+        "libelle": "nom",
+        "groupe": "compte",
+        "paire": {
+          "owner": "@dossier",
+          "subject": [
+            "sujet_slug",
+            "@dossier"
+          ]
+        },
+        "prime_runs": {
+          "cle": "owner",
+          "champ": "subject",
+          "remplace": "sujet_slug"
+        }
+      }
+    },
+    "champs": [
+      {
+        "cle": "compte",
+        "libelle": "Compte",
+        "options_de": "comptes",
+        "filtre": true
+      },
+      {
+        "cle": "owner",
+        "libelle": "Sujet",
+        "options_de": "veilles"
+      },
+      {
+        "cle": "subject",
+        "libelle": "Sujet",
+        "options_de": "sujets",
+        "cache": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+.env
+data/
+node_modules/
+__pycache__/
+*.pyc
+*.bak
+*.bak-*
+pipeline/.lexique-fr.json
