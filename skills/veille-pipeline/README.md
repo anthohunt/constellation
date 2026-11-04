@@ -1,4 +1,6 @@
-# Veille Pipeline — README de conception
+# Watch pipeline: design README
+
+> This document is in French.
 
 > **Ce qu'est ce document.** Le **pourquoi** de la pipeline veille : ce que chaque décision de
 > design cherche à obtenir, et la référence qui l'appuie. Il ne dit pas *comment* on exécute —
