@@ -213,6 +213,7 @@
   function envoyer(p) {
     var nom = p.querySelector("#nom"), msg = p.querySelector("#msg");
     var b = p.querySelector(".env"), err = p.querySelector(".err");
+    if (b.disabled) return; /* envoi en cours : le raccourci clavier ne doit pas poster deux fois */
     var n = nom.value.trim(), m = msg.value.trim();
     err.hidden = true;
     if (!n || !m) { err.textContent = t.manque; err.hidden = false; (n ? msg : nom).focus(); return; }
