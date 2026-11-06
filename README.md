@@ -81,3 +81,7 @@ Optional services, each enabled only when its key is set: Brevo (fallback email 
 - Code: Apache License 2.0 (`LICENSE`, `NOTICE`).
 - Texts, agent instructions (`skills/`), documents and diagrams: Creative Commons Attribution 4.0 International (`LICENSE-docs`).
 - Third-party components and their licenses are listed in `NOTICE` (three.js, MIT; marked, MIT; fonts under SIL OFL, loaded from Google Fonts).
+
+---
+
+**Anthony Hunt** · [Project page on ingevision.cloud](https://ingevision.cloud/?lang=en&p=constellation) · [LinkedIn](https://www.linkedin.com/in/anthony-hunt-3948a9196) · [GitHub profile](https://github.com/anthohunt)
